@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "984205381800",
+    "project_id": "konektizen-2fee4",
+    "storage_bucket": "konektizen-2fee4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:984205381800:android:e98749fee072ea375b729d",
+        "android_client_info": {
+          "package_name": "com.konektizen.konektizen"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD_py7zJEsBbjkoM_72CkyxQPTRRyIc234"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

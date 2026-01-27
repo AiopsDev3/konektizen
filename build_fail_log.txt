@@ -1,0 +1,63 @@
+Running Gradle task 'assembleDebug'...                          
+warning: [options] source value 8 is obsolete and will be removed in a future release
+warning: [options] target value 8 is obsolete and will be removed in a future release
+warning: [options] To suppress warnings about obsolete options, use -Xlint:-options.
+C:\Users\EliteBook\AppData\Local\Pub\Cache\hosted\pub.dev\maplibre_gl-0.19.0+2\android\src\main\java\com\mapbox\mapboxgl\GlobalMethodHandler.java:29: error: cannot find symbol
+  @Nullable private PluginRegistry.Registrar registrar;
+                                  ^
+  symbol:   class Registrar
+  location: interface PluginRegistry
+C:\Users\EliteBook\AppData\Local\Pub\Cache\hosted\pub.dev\maplibre_gl-0.19.0+2\android\src\main\java\com\mapbox\mapboxgl\GlobalMethodHandler.java:33: error: cannot find symbol
+  GlobalMethodHandler(@NonNull PluginRegistry.Registrar registrar) {
+                                             ^
+  symbol:   class Registrar
+  location: interface PluginRegistry
+C:\Users\EliteBook\AppData\Local\Pub\Cache\hosted\pub.dev\maplibre_gl-0.19.0+2\android\src\main\java\com\mapbox\mapboxgl\MapboxMapsPlugin.java:20: error: cannot find symbol
+import io.flutter.plugin.common.PluginRegistry.Registrar;
+                                              ^
+  symbol:   class Registrar
+  location: interface PluginRegistry
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+3 errors
+3 warnings
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':maplibre_gl:compileDebugJavaWithJavac'.
+> Compilation failed; see the compiler output below.
+  warning: [options] target value 8 is obsolete and will be removed in a future release
+  Note: Recompile with -Xlint:deprecation for details.
+  warning: [options] source value 8 is obsolete and will be removed in a future release
+  C:\Users\EliteBook\AppData\Local\Pub\Cache\hosted\pub.dev\maplibre_gl-0.19.0+2\android\src\main\java\com\mapbox\mapboxgl\GlobalMethodHandler.java:29: error: cannot find symbol
+    @Nullable private PluginRegistry.Registrar registrar;
+                                    ^
+    symbol:   class Registrar
+    location: interface PluginRegistry
+  C:\Users\EliteBook\AppData\Local\Pub\Cache\hosted\pub.dev\maplibre_gl-0.19.0+2\android\src\main\java\com\mapbox\mapboxgl\GlobalMethodHandler.java:33: error: cannot find symbol
+    GlobalMethodHandler(@NonNull PluginRegistry.Registrar registrar) {
+                                               ^
+    symbol:   class Registrar
+    location: interface PluginRegistry
+  C:\Users\EliteBook\AppData\Local\Pub\Cache\hosted\pub.dev\maplibre_gl-0.19.0+2\android\src\main\java\com\mapbox\mapboxgl\MapboxMapsPlugin.java:20: error: cannot find symbol
+  import io.flutter.plugin.common.PluginRegistry.Registrar;
+                                                ^
+    symbol:   class Registrar
+    location: interface PluginRegistry
+  warning: [options] To suppress warnings about obsolete options, use -Xlint:-options.
+  Note: Recompile with -Xlint:unchecked for details.
+  Note: Some input files use or override a deprecated API.
+  Note: Some input files use unchecked or unsafe operations.
+  3 errors
+  3 warnings
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights.
+
+BUILD FAILED in 7s
+Running Gradle task 'assembleDebug'...                              8.2s
+Gradle task assembleDebug failed with exit code 1

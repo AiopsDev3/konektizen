@@ -1,0 +1,16 @@
+// Add these routes after line 42 in router.dart (after the 'auth/register' route):
+
+         GoRoute(
+           path: 'auth/phone-login',
+           builder: (context, state) => const PhoneLoginScreen(),
+         ),
+         GoRoute(
+           path: 'auth/verify-otp',
+           builder: (context, state) {
+             final extra = state.extra as Map<String, dynamic>;
+             return OTPVerificationScreen(
+               phoneNumber: extra['phoneNumber'],
+               verificationId: extra['verificationId'],
+             );
+           },
+         ),
