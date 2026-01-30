@@ -1,962 +1,1209 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Emergency Call - Command Center</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #1a1a1a;
-            color: white;
-            overflow: hidden;
-        }
-        
-        #videoContainer {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
-            background: #000;
-            overflow: hidden;
-        }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
 
-        #remoteVideoContainer {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 1;
-        }
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: #1a1a1a;
+        color: white;
+        overflow: hidden;
+      }
 
-        #bgVideo {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            filter: blur(30px) brightness(0.6);
-            transform: scale(1.1);
-            z-index: 1;
-        }
+      #videoContainer {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        background: #000;
+        overflow: hidden;
+      }
 
-        #remoteVideo {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: contain; /* Ensure full view without cropping */
-            z-index: 2;
-            filter: drop-shadow(0 0 20px rgba(0,0,0,0.5));
-        }
-        
-        #mainContent {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 3;
-            pointer-events: none;
-        }
-        
-        #localVideo {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 280px;
-            height: 157px;
-            border: 2px solid rgba(255,255,255,0.8);
-            border-radius: 12px;
-            object-fit: contain;
-            background: #333;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            transition: all 0.3s ease;
-            pointer-events: auto;
-            transform: scaleX(1); /* Explicitly disable mirroring */
-        }
+      #remoteVideoContainer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1;
+      }
 
-        #localVideo:hover {
-            transform: scale(1.05);
-            border-color: #fff;
+      #bgVideo {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        filter: blur(30px) brightness(0.6);
+        transform: scale(1.1);
+        z-index: 1;
+      }
+
+      #remoteVideo {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain; /* Ensure full view without cropping */
+        z-index: 2;
+        filter: drop-shadow(0 0 20px rgba(0, 0, 0, 0.5));
+      }
+
+      #mainContent {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 3;
+        pointer-events: none;
+      }
+
+      #localVideo {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        width: 280px;
+        height: 157px;
+        border: 2px solid rgba(255, 255, 255, 0.8);
+        border-radius: 12px;
+        object-fit: contain;
+        background: #333;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+        transition: all 0.3s ease;
+        pointer-events: auto;
+        transform: scaleX(1); /* Explicitly disable mirroring */
+      }
+
+      #localVideo:hover {
+        transform: scale(1.05);
+        border-color: #fff;
+      }
+
+      #controls {
+        position: absolute;
+        bottom: 40px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 20px;
+        padding: 15px 30px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 40px;
+        backdrop-filter: blur(10px);
+        pointer-events: auto;
+      }
+
+      .control-btn {
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: bold;
+        transition: all 0.3s;
+        text-transform: uppercase;
+      }
+
+      .control-btn:hover {
+        transform: scale(1.1);
+      }
+
+      #micBtn,
+      #cameraBtn {
+        background: rgba(255, 255, 255, 0.2);
+        color: white;
+      }
+
+      #micBtn.muted,
+      #cameraBtn.off {
+        background: #e74c3c;
+      }
+
+      #hangupBtn {
+        background: #e74c3c;
+        color: white;
+        width: 70px;
+        height: 70px;
+      }
+
+      #status {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 15px 25px;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 500;
+        pointer-events: auto;
+      }
+
+      #waitingScreen {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: #1a1a1a;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 30px;
+      }
+
+      .spinner {
+        width: 60px;
+        height: 60px;
+        border: 6px solid rgba(255, 255, 255, 0.3);
+        border-top-color: #3498db;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
         }
-        
-        #controls {
-            position: absolute;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: flex;
-            gap: 20px;
-            padding: 15px 30px;
-            background: rgba(0,0,0,0.3);
-            border-radius: 40px;
-            backdrop-filter: blur(10px);
-            pointer-events: auto;
+      }
+
+      #waitingScreen h1 {
+        font-size: 32px;
+        font-weight: 600;
+      }
+
+      #waitingScreen p {
+        font-size: 18px;
+        color: #bdc3c7;
+      }
+
+      .status-indicator {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 8px;
+      }
+
+      .status-indicator.waiting {
+        background: #f39c12;
+        animation: pulse 1.5s infinite;
+      }
+
+      .status-indicator.connected {
+        background: #27ae60;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
         }
-        
-        .control-btn {
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            border: none;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 14px;
-            font-weight: bold;
-            transition: all 0.3s;
-            text-transform: uppercase;
+        50% {
+          opacity: 0.5;
         }
-        
-        .control-btn:hover {
-            transform: scale(1.1);
+      }
+
+      .recording-pulse {
+        animation: recPulse 1.5s infinite;
+      }
+
+      @keyframes recPulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7);
         }
-        
-        #micBtn, #cameraBtn {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
+        70% {
+          box-shadow: 0 0 0 10px rgba(231, 76, 60, 0);
         }
-        
-        #micBtn.muted, #cameraBtn.off {
-            background: #e74c3c;
+        100% {
+          box-shadow: 0 0 0 0 rgba(231, 76, 60, 0);
         }
-        
-        #hangupBtn {
-            background: #e74c3c;
-            color: white;
-            width: 70px;
-            height: 70px;
-        }
-        
-        #status {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 15px 25px;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 500;
-            pointer-events: auto;
-        }
-        
-        #waitingScreen {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: #1a1a1a;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 30px;
-        }
-        
-        .spinner {
-            width: 60px;
-            height: 60px;
-            border: 6px solid rgba(255, 255, 255, 0.3);
-            border-top-color: #3498db;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        #waitingScreen h1 {
-            font-size: 32px;
-            font-weight: 600;
-        }
-        
-        #waitingScreen p {
-            font-size: 18px;
-            color: #bdc3c7;
-        }
-        
-        .status-indicator {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            margin-right: 8px;
-        }
-        
-        .status-indicator.waiting {
-            background: #f39c12;
-            animation: pulse 1.5s infinite;
-        }
-        
-        .status-indicator.connected {
-            background: #27ae60;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
-        .recording-pulse {
-            animation: recPulse 1.5s infinite;
-        }
-        
-        @keyframes recPulse {
-            0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
-        }
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div id="waitingScreen">
-        <h1>KONEKTIZEN Command Center</h1>
-        <div class="spinner"></div>
-        <p id="waitingMessage">Waiting for emergency calls...</p>
-    </div>
-    
-    <div id="videoContainer" style="display: none;">
-        <div id="remoteVideoContainer">
-            <video id="bgVideo" autoplay playsinline muted></video>
-            <video id="remoteVideo" autoplay playsinline></video>
-        </div>
-
-        <div id="mainContent">
-            <div id="status">
-                <span class="status-indicator waiting"></span>
-                <span id="statusText">Connecting...</span>
-            </div>
-            
-            <video id="localVideo" autoplay playsinline muted></video>
-            
-            <div id="controls">
-                <button class="control-btn" id="recordBtn" title="Start Recording" style="background: rgba(255, 255, 255, 0.2); color: white;">
-                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3" fill="currentColor"></circle></svg>
-                </button>
-                <button class="control-btn" id="micBtn" title="Toggle Microphone">
-                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-                </button>
-                <button class="control-btn" id="hangupBtn" title="End Call">
-                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"></path><line x1="23" y1="1" x2="1" y2="23"></line></svg>
-                </button>
-                <button class="control-btn" id="cameraBtn" title="Toggle Camera">
-                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-                </button>
-            </div>
-        </div>
+      <h1>KONEKTIZEN Command Center</h1>
+      <div class="spinner"></div>
+      <p id="waitingMessage">Waiting for emergency calls...</p>
     </div>
 
-    <div id="incomingCallModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100000; pointer-events: auto; flex-direction: column; align-items: center; justify-content: center;">
-        <div style="background: #2c3e50; padding: 40px; border-radius: 20px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #34495e; pointer-events: auto;">
-            <div style="width: 80px; height: 80px; background: #e74c3c; border-radius: 50%; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; animation: pulse-ring 2s infinite;">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="white"><path d="M20 15.5c-1.2 0-2.4-.2-3.6-.6-.3-.1-.6 0-.8.2l-2.2 2.2c-2.8-1.4-5.1-3.8-6.6-6.6l2.2-2.2c.3-.3.4-.6.2-.9-.4-1.2-.6-2.4-.6-3.6 0-.6-.4-1-1-1H4.1c-.6 0-1 .4-1 1 0 9.4 7.6 17 17 17 .6 0 1-.4 1-1v-3.5c0-.6-.4-1-1-1zM12 3v10l3-3h6V3h-9z"/></svg>
-            </div>
-            <h2 style="color: white; margin-bottom: 10px; font-size: 24px;">Incoming Emergency Call!</h2>
-            <p style="color: #bdc3c7; margin-bottom: 30px;">A citizen is requesting assistance.</p>
-            <div style="display: flex; gap: 20px; justify-content: center;">
-                <button id="declineBtn" style="padding: 12px 30px; border-radius: 30px; border: none; background: #95a5a6; color: white; font-weight: bold; cursor: pointer; text-transform: uppercase;">Ignore</button>
-                <button id="answerBtn" style="padding: 12px 30px; border-radius: 30px; border: none; background: #2ecc71; color: white; font-weight: bold; cursor: pointer; text-transform: uppercase; box-shadow: 0 4px 15px rgba(46, 204, 113, 0.4); pointer-events: auto; z-index: 100001;">Answer Call</button>
-            </div>
+    <div id="videoContainer" style="display: none">
+      <div id="remoteVideoContainer">
+        <video id="bgVideo" autoplay playsinline muted></video>
+        <video id="remoteVideo" autoplay playsinline></video>
+      </div>
+
+      <div id="mainContent">
+        <div id="status">
+          <span class="status-indicator waiting"></span>
+          <span id="statusText">Connecting...</span>
         </div>
+
+        <video id="localVideo" autoplay playsinline muted></video>
+
+        <div id="controls">
+          <button
+            class="control-btn"
+            id="recordBtn"
+            title="Start Recording"
+            style="background: rgba(255, 255, 255, 0.2); color: white"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="24"
+              height="24"
+              stroke="currentColor"
+              stroke-width="2"
+              fill="none"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="10"></circle>
+              <circle cx="12" cy="12" r="3" fill="currentColor"></circle>
+            </svg>
+          </button>
+          <button class="control-btn" id="micBtn" title="Toggle Microphone">
+            <svg
+              viewBox="0 0 24 24"
+              width="24"
+              height="24"
+              stroke="currentColor"
+              stroke-width="2"
+              fill="none"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
+              ></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" y1="19" x2="12" y2="23"></line>
+              <line x1="8" y1="23" x2="16" y2="23"></line>
+            </svg>
+          </button>
+          <button class="control-btn" id="hangupBtn" title="End Call">
+            <svg
+              viewBox="0 0 24 24"
+              width="24"
+              height="24"
+              stroke="currentColor"
+              stroke-width="2"
+              fill="none"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"
+              ></path>
+              <line x1="23" y1="1" x2="1" y2="23"></line>
+            </svg>
+          </button>
+          <button class="control-btn" id="cameraBtn" title="Toggle Camera">
+            <svg
+              viewBox="0 0 24 24"
+              width="24"
+              height="24"
+              stroke="currentColor"
+              stroke-width="2"
+              fill="none"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"
+              ></path>
+              <circle cx="12" cy="13" r="4"></circle>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="incomingCallModal"
+      style="
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        z-index: 100000;
+        pointer-events: auto;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      "
+    >
+      <div
+        style="
+          background: #2c3e50;
+          padding: 40px;
+          border-radius: 20px;
+          text-align: center;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+          border: 1px solid #34495e;
+          pointer-events: auto;
+        "
+      >
+        <div
+          style="
+            width: 80px;
+            height: 80px;
+            background: #e74c3c;
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: pulse-ring 2s infinite;
+          "
+        >
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="white">
+            <path
+              d="M20 15.5c-1.2 0-2.4-.2-3.6-.6-.3-.1-.6 0-.8.2l-2.2 2.2c-2.8-1.4-5.1-3.8-6.6-6.6l2.2-2.2c.3-.3.4-.6.2-.9-.4-1.2-.6-2.4-.6-3.6 0-.6-.4-1-1-1H4.1c-.6 0-1 .4-1 1 0 9.4 7.6 17 17 17 .6 0 1-.4 1-1v-3.5c0-.6-.4-1-1-1zM12 3v10l3-3h6V3h-9z"
+            />
+          </svg>
+        </div>
+        <h2 style="color: white; margin-bottom: 10px; font-size: 24px">
+          Incoming Emergency Call!
+        </h2>
+        <p style="color: #bdc3c7; margin-bottom: 30px">
+          A citizen is requesting assistance.
+        </p>
+        <div style="display: flex; gap: 20px; justify-content: center">
+          <button
+            id="declineBtn"
+            style="
+              padding: 12px 30px;
+              border-radius: 30px;
+              border: none;
+              background: #95a5a6;
+              color: white;
+              font-weight: bold;
+              cursor: pointer;
+              text-transform: uppercase;
+            "
+          >
+            Ignore
+          </button>
+          <button
+            id="answerBtn"
+            style="
+              padding: 12px 30px;
+              border-radius: 30px;
+              border: none;
+              background: #2ecc71;
+              color: white;
+              font-weight: bold;
+              cursor: pointer;
+              text-transform: uppercase;
+              box-shadow: 0 4px 15px rgba(46, 204, 113, 0.4);
+              pointer-events: auto;
+              z-index: 100001;
+            "
+          >
+            Answer Call
+          </button>
+        </div>
+      </div>
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script>
-        const SERVER_URL = 'http://localhost:5000';
-        
-        let socket;
-        let peerConnection;
-        let localStream;
-        let callId = null;
-        let micEnabled = true;
-        let cameraEnabled = true;
-        let isInCall = false;
-        
-        const configuration = {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' }
-            ]
-        };
-        
-        // UI Elements
-        const waitingScreen = document.getElementById('waitingScreen');
-        const waitingMessage = document.getElementById('waitingMessage');
-        const videoContainer = document.getElementById('videoContainer');
-        const statusText = document.getElementById('statusText');
-        const statusIndicator = document.querySelector('.status-indicator');
-        const remoteVideo = document.getElementById('remoteVideo');
-        const localVideo = document.getElementById('localVideo');
-        
-        // Polling removed as per user request to avoid bypass fixes
-        const micBtn = document.getElementById('micBtn');
-        const cameraBtn = document.getElementById('cameraBtn');
-        const hangupBtn = document.getElementById('hangupBtn');
-        const incomingCallModal = document.getElementById('incomingCallModal');
-        const answerBtn = document.getElementById('answerBtn');
-        const declineBtn = document.getElementById('declineBtn');
-        
-        const recordBtn = document.getElementById('recordBtn');
-        
-        // Recording Variables
-        let mediaRecorder;
-        let recordedChunks = [];
-        let audioContext;
-        let destAudioNode;
-        let isRecording = false;
-        let recordingCanvas;
-        let recordingCtx;
-        let drawingFrameId;
+      const SERVER_URL = "http://localhost:5000";
 
-        // Connect to Socket.IO
-        console.log('[Responder] Connecting to Socket.IO server...');
-        console.log('[Responder] Server URL:', SERVER_URL);
-        socket = io(SERVER_URL, {
-            transports: ['websocket']
-        });
-        
-        socket.on('connect', () => {
-            console.log('[Responder] ✓ Connected to Socket.IO server');
-            console.log('[Responder] Socket ID:', socket.id);
-            waitingMessage.textContent = 'Connected. Waiting for emergency calls...';
-        });
-        
-        socket.on('disconnect', () => {
-            console.log('[Responder] ✗ Disconnected from Socket.IO server');
-            waitingMessage.textContent = 'Disconnected. Reconnecting...';
-        });
-        
-        socket.on('connect_error', (error) => {
-            console.error('[Responder] Connection error:', error);
-        });
+      let socket;
+      let peerConnection;
+      let localStream;
+      let callId = null;
+      let micEnabled = true;
+      let cameraEnabled = true;
+      let isInCall = false;
 
-        // --- RECORDING LOGIC ---
-        
-        function setupAudioMixing() {
-            if (!audioContext) {
-                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                 destAudioNode = audioContext.createMediaStreamDestination();
-            }
-            
-            // Ensure context is running (fixes "no audio" if context was suspended)
-            if (audioContext.state === 'suspended') {
-                audioContext.resume();
-            }
-            
-            try {
-                // 2. Add Local Audio (if available and not yet added)
-                // Note: We need to be careful not to add it multiple times if we start/stop
-                // Simplified: We reconstruct the graph on startRecording for safety or check connections
-                // For this implementation, we'll recreate connections in startRecording to be safe
-            } catch (e) {
-                console.error('[Recording] Error setting up audio mix:', e);
-            }
-        }
-        
-        function drawCanvasFrame() {
-            if (!isRecording) return;
-            
-            // 1. Setup Fixed Canvas (HD Landscape)
-            if (recordingCanvas.width !== 1280) {
-                recordingCanvas.width = 1280;
-                recordingCanvas.height = 720;
-            }
-            
-            const ctx = recordingCtx;
-            const cw = recordingCanvas.width;
-            const ch = recordingCanvas.height;
-            
-            // 2. Background (Black)
-            ctx.fillStyle = '#000000';
-            ctx.fillRect(0, 0, cw, ch);
-            
-            // 3. Draw Remote Video (Contained/Letterboxed)
-            // readyState >= 2 means HAVE_CURRENT_DATA (enough to draw a frame)
-            if (remoteVideo.readyState >= 2) { 
-                const vw = remoteVideo.videoWidth;
-                const vh = remoteVideo.videoHeight;
-                
-                if (vw > 0 && vh > 0) {
-                    // Calculate "contain" dimensions
-                    const scale = Math.min(cw / vw, ch / vh);
-                    const dw = vw * scale;
-                    const dh = vh * scale;
-                    const dx = (cw - dw) / 2;
-                    const dy = (ch - dh) / 2;
-                    
-                    ctx.drawImage(remoteVideo, dx, dy, dw, dh);
-                }
-            }
-            
-            // 4. Draw Local Video (Picture-in-Picture)
-            if (localVideo.readyState >= 2) {
-                const lvw = localVideo.videoWidth; // Use intrinsic dimensions
-                const lvh = localVideo.videoHeight;
-                
-                if (lvw > 0 && lvh > 0) {
-                    // PiP Size (e.g., 20% of canvas width)
-                    const pipScaleFactor = 0.25; 
-                    const pipW = cw * pipScaleFactor; // ~320px
-                    const pipRatio = lvw / lvh;
-                    const pipH = pipW / pipRatio;
-                    
-                    // Position: Top Right with padding
-                    const padding = 20;
-                    const pipX = cw - pipW - padding;
-                    const pipY = padding;
-                    
-                    // Add border/shadow effect
-                    ctx.strokeStyle = 'white';
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(pipX, pipY, pipW, pipH);
-                    
-                    ctx.drawImage(localVideo, pipX, pipY, pipW, pipH);
-                }
-            }
-            
-            drawingFrameId = requestAnimationFrame(drawCanvasFrame);
+      const configuration = {
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      };
+
+      // UI Elements
+      const waitingScreen = document.getElementById("waitingScreen");
+      const waitingMessage = document.getElementById("waitingMessage");
+      const videoContainer = document.getElementById("videoContainer");
+      const statusText = document.getElementById("statusText");
+      const statusIndicator = document.querySelector(".status-indicator");
+      const remoteVideo = document.getElementById("remoteVideo");
+      const localVideo = document.getElementById("localVideo");
+
+      // Polling removed as per user request to avoid bypass fixes
+      const micBtn = document.getElementById("micBtn");
+      const cameraBtn = document.getElementById("cameraBtn");
+      const hangupBtn = document.getElementById("hangupBtn");
+      const incomingCallModal = document.getElementById("incomingCallModal");
+      const answerBtn = document.getElementById("answerBtn");
+      const declineBtn = document.getElementById("declineBtn");
+
+      const recordBtn = document.getElementById("recordBtn");
+
+      // Recording Variables
+      let mediaRecorder;
+      let recordedChunks = [];
+      let audioContext;
+      let destAudioNode;
+      let isRecording = false;
+      let recordingCanvas;
+      let recordingCtx;
+      let drawingFrameId;
+
+      // Connect to Socket.IO
+      console.log("[Responder] Connecting to Socket.IO server...");
+      console.log("[Responder] Server URL:", SERVER_URL);
+      socket = io(SERVER_URL, {
+        transports: ["websocket"],
+      });
+
+      socket.on("connect", () => {
+        console.log("[Responder] ✓ Connected to Socket.IO server");
+        console.log("[Responder] Socket ID:", socket.id);
+        waitingMessage.textContent =
+          "Connected. Waiting for emergency calls...";
+      });
+
+      socket.on("disconnect", () => {
+        console.log("[Responder] ✗ Disconnected from Socket.IO server");
+        waitingMessage.textContent = "Disconnected. Reconnecting...";
+      });
+
+      socket.on("connect_error", (error) => {
+        console.error("[Responder] Connection error:", error);
+      });
+
+      // --- RECORDING LOGIC ---
+
+      function setupAudioMixing() {
+        if (!audioContext) {
+          audioContext = new (
+            window.AudioContext || window.webkitAudioContext
+          )();
+          destAudioNode = audioContext.createMediaStreamDestination();
         }
 
-        async function startRecording() {
-            if (!remoteVideo.srcObject) {
-                alert("No active video call to record.");
-                return;
-            }
-            
-            try {
-                // Clear previous recording data
-                recordedChunks = [];
-                
-                // Set flag TRUE immediately so drawing loop runs
-                isRecording = true;
-                recordBtn.innerText = "STOP";
-                recordBtn.style.background = "#e74c3c";
-                recordBtn.classList.add('recording-pulse');
-                
-                // Ensure audio context is running
-                if (audioContext.state === 'suspended') {
-                    await audioContext.resume();
-                    console.log('[Recording] Audio context resumed');
-                }
-                
-                console.log('[Recording] Audio Context State:', audioContext.state);
-                
-                // Clear and Rebuild Audio Graph
-                // Disconnect old sources if any (not easily possible without tracking, so we rely on stream)
-                
-                // Add Local Audio
-                if (localStream && localStream.getAudioTracks().length > 0) {
-                     const localAudioTrack = localStream.getAudioTracks()[0];
-                     console.log('[Recording] Local Audio Track:', localAudioTrack.label, 'enabled:', localAudioTrack.enabled);
-                     const localSource = audioContext.createMediaStreamSource(localStream);
-                     localSource.connect(destAudioNode);
-                     console.log('[Recording] ✓ Connected Local Audio');
-                } else {
-                    console.warn('[Recording] ✗ No Local Audio Tracks found');
-                }
-                
-                // Add Remote Audio
-                const remoteStream = remoteVideo.srcObject;
-                if (remoteStream && remoteStream.getAudioTracks().length > 0) {
-                    const remoteAudioTrack = remoteStream.getAudioTracks()[0];
-                    console.log('[Recording] Remote Audio Track:', remoteAudioTrack.label, 'enabled:', remoteAudioTrack.enabled);
-                    const remoteSource = audioContext.createMediaStreamSource(remoteStream);
-                    remoteSource.connect(destAudioNode);
-                    console.log('[Recording] ✓ Connected Remote Audio');
-                } else {
-                    console.warn('[Recording] ✗ No Remote Audio Tracks found');
-                }
-                
-                console.log('[Recording] Destination Audio Tracks:', destAudioNode.stream.getAudioTracks().length);
-                
-                // 5. Setup Canvas
-                recordingCanvas = document.createElement('canvas');
-                recordingCanvas.width = 1280; 
-                recordingCanvas.height = 720;
-                recordingCtx = recordingCanvas.getContext('2d');
-                
-                drawCanvasFrame();
-                
-                const canvasStream = recordingCanvas.captureStream(30);
-                const mixedStream = new MediaStream();
-                
-                canvasStream.getVideoTracks().forEach(track => mixedStream.addTrack(track));
-                
-                // CRITICAL: Check if destination node has tracks
-                if (destAudioNode.stream.getAudioTracks().length > 0) {
-                    destAudioNode.stream.getAudioTracks().forEach(track => mixedStream.addTrack(track));
-                    console.log('[Recording] Mixed Audio Track added to Recorder');
-                } else {
-                    console.error('[Recording] No Mixed Audio Tracks available!');
-                }
-                
-                
-                let mimeType = 'video/webm';
-                let extension = 'webm';
-                
-                // Try VP9 first (best quality for WebM)
-                if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) {
-                    mimeType = 'video/webm;codecs=vp9,opus';
-                    extension = 'webm';
-                    console.log('[Recording] Using VP9 + Opus codec');
-                } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) {
-                    mimeType = 'video/webm;codecs=vp8,opus';
-                    extension = 'webm';
-                    console.log('[Recording] Using VP8 + Opus codec');
-                } else if (MediaRecorder.isTypeSupported('video/webm;codecs=h264,opus')) {
-                    mimeType = 'video/webm;codecs=h264,opus';
-                    extension = 'webm';
-                    console.log('[Recording] Using H264 + Opus codec');
-                } else {
-                    console.log('[Recording] Using default WebM codec');
-                }
-                
-                console.log(`[Recording] Selected MIME: ${mimeType}, Ext: ${extension}`);
-                    
-                mediaRecorder = new MediaRecorder(mixedStream, { mimeType: mimeType });
-                mediaRecorder.fileExtension = extension;  
-                
-                mediaRecorder.ondataavailable = (event) => {
-                    if (event.data && event.data.size > 0) {
-                        recordedChunks.push(event.data);
-                        console.log(`[Recording] Data chunk received: ${event.data.size} bytes`);
-                    }
-                };
-                
-                mediaRecorder.onstop = () => {
-                    console.log('[Recording] MediaRecorder stopped, processing chunks...');
-                    const type = mediaRecorder.fileExtension === 'mp4' ? 'video/mp4' : 'video/webm';
-                    const blob = new Blob(recordedChunks, { type: type });
-                    console.log(`[Recording] Final blob size: ${blob.size} bytes`);
-                    
-                    // Create object URL for download and playback
-                    const url = URL.createObjectURL(blob);
-                    downloadRecording(blob, url, mediaRecorder.fileExtension);
-                    
-                    // Use a small delay before showing playback to ensure blob is ready
-                    setTimeout(() => {
-                        showPlaybackModal(url);
-                    }, 100);
-                };
-                
-                // Use 100ms timeslice for better metadata
-                mediaRecorder.start(100); 
-                console.log('[Recording] Started with 100ms timeslice');
-                
-            } catch (e) {
-                console.error('[Recording] Failed to start:', e);
-                alert("Could not start recording: " + e.message);
-                isRecording = false; 
-                recordBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3" fill="currentColor"></circle></svg>';
-                recordBtn.classList.remove('recording-pulse');
-            }
+        // Ensure context is running (fixes "no audio" if context was suspended)
+        if (audioContext.state === "suspended") {
+          audioContext.resume();
         }
-        
-        function stopRecording() {
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
-                isRecording = false;
-                cancelAnimationFrame(drawingFrameId); 
-                // Reset Icon to Rec
-                recordBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3" fill="currentColor"></circle></svg>';
-                recordBtn.style.background = "rgba(255, 255, 255, 0.2)";
-                recordBtn.classList.remove('recording-pulse');
-                console.log('[Recording] Stopped');
-            }
-        }
-        
-        function downloadRecording(blob, url, extension) {
-            if (recordedChunks.length === 0) {
-                console.error('[Recording] No data recorded!');
-                alert("Recording failed: No data captured.");
-                return;
-            }
 
-            // Create blob with correct MIME type
-            // Note: For .mkv we still use 'video/webm' mime type as browser doesn't know 'video/x-matroska'
-            // const type = extension === 'mp4' ? 'video/mp4' : 'video/webm'; // This is now passed in
-            // const blob = new Blob(recordedChunks, { type: type }); // This is now passed in
-            console.log(`[Recording] Blob created: ${blob.size} bytes, type: ${blob.type}`);
-            
-            // const url = URL.createObjectURL(blob); // This is now passed in
-            const a = document.createElement('a');
-            document.body.appendChild(a);
-            a.style.display = 'none';
-            
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            a.href = url;
-            a.download = `incident-${callId || 'unknown'}-${timestamp}.${extension}`;
-            a.click();
-            
-            // Cleanup handled by modal close or timeout
-            setTimeout(() => { document.body.removeChild(a); }, 100);
-            recordedChunks = []; // Reset
-            console.log('[Recording] Download triggered');
+        try {
+          // 2. Add Local Audio (if available and not yet added)
+          // Note: We need to be careful not to add it multiple times if we start/stop
+          // Simplified: We reconstruct the graph on startRecording for safety or check connections
+          // For this implementation, we'll recreate connections in startRecording to be safe
+        } catch (e) {
+          console.error("[Recording] Error setting up audio mix:", e);
         }
-        
-        function showPlaybackModal(videoUrl) {
-            const modal = document.createElement('div');
-            modal.style.position = 'fixed';
-            modal.style.top = '0';
-            modal.style.left = '0';
-            modal.style.width = '100%';
-            modal.style.height = '100%';
-            modal.style.background = 'rgba(0,0,0,0.9)';
-            modal.style.zIndex = '10000';
-            modal.style.display = 'flex';
-            modal.style.flexDirection = 'column';
-            modal.style.alignItems = 'center';
-            modal.style.justifyContent = 'center';
-            
-            const video = document.createElement('video');
-            video.src = videoUrl;
-            video.controls = true;
-            video.preload = 'metadata'; // Force metadata loading
-            video.style.maxWidth = '90%';
-            video.style.maxHeight = '80%';
-            video.style.border = '2px solid white';
-            
-            // Try to force duration detection
-            let durationFixed = false;
-            
-            video.addEventListener('loadedmetadata', function() {
-                console.log('[Playback] Metadata loaded, duration:', video.duration);
-                
-                // If duration is still invalid, try the seek trick
-                if (!isFinite(video.duration) || video.duration === 0) {
-                    console.warn('[Playback] Invalid duration detected, attempting fix...');
-                    
-                    // Seek to a very large time to force browser to find actual duration
-                    const seekTime = 1e10; // Very large number
-                    video.currentTime = seekTime;
-                    
-                    video.addEventListener('seeked', function onSeeked() {
-                        console.log('[Playback] Seeked to:', video.currentTime, 'Duration now:', video.duration);
-                        
-                        if (isFinite(video.duration) && video.duration > 0) {
-                            durationFixed = true;
-                            console.log('[Playback] ✓ Duration fixed:', video.duration);
-                            // Reset to start
-                            video.currentTime = 0;
-                            video.play();
-                        }
-                        
-                        video.removeEventListener('seeked', onSeeked);
-                    }, { once: true });
-                } else {
-                    console.log('[Playback] ✓ Valid duration:', video.duration);
-                    durationFixed = true;
-                    video.play();
-                }
-            });
-            
-            video.addEventListener('error', function(e) {
-                console.error('[Playback] Video error:', e, video.error);
-                alert('Error playing video: ' + (video.error ? video.error.message : 'Unknown error'));
-            });
-            
-            // Log timeupdate to verify playback is working
-            video.addEventListener('timeupdate', function() {
-                if (!durationFixed) {
-                    console.log('[Playback] Time:', video.currentTime, 'Duration:', video.duration);
-                }
-            });
-            
-            const closeBtn = document.createElement('button');
-            closeBtn.innerText = "Close & Save";
-            closeBtn.style.marginTop = '20px';
-            closeBtn.style.padding = '10px 20px';
-            closeBtn.style.fontSize = '18px';
-            closeBtn.style.cursor = 'pointer';
-            closeBtn.onclick = () => {
-                video.pause();
-                document.body.removeChild(modal);
-                URL.revokeObjectURL(videoUrl); // Clean up
-            };
-            
-            modal.appendChild(video);
-            modal.appendChild(closeBtn);
-            document.body.appendChild(modal);
-        }
-        
-        recordBtn.onclick = () => {
-            if (!isRecording) {
-                startRecording();
-            } else {
-                stopRecording();
-            }
-        };
+      }
 
-        // Define endCall function to handle call termination
-        function endCall() {
-            if (isRecording) {
-                console.log('[Recording] Call ended, stopping recording...');
-                stopRecording();
-            }
-            // Close audio context to free resources
-             if (audioContext && audioContext.state !== 'closed') {
-                audioContext.close();
-                audioContext = null;
-            }
-            // Stop all media tracks
-             if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-            }
-            if (peerConnection) {
-                peerConnection.close();
-            }
-            
-            // Reset state
-            isInCall = false;
-            callId = null;
-            
-            // Reset UI
-            videoContainer.style.display = 'none';
-            waitingScreen.style.display = 'flex';
-            waitingMessage.textContent = 'Waiting for emergency calls...';
-            statusText.textContent = 'Connecting...';
-            statusIndicator.classList.remove('connected');
-            statusIndicator.classList.add('waiting');
+      function drawCanvasFrame() {
+        if (!isRecording) return;
 
-            
-            micEnabled = true;
-            cameraEnabled = true;
-            micBtn.classList.remove('muted');
-            cameraBtn.classList.remove('off');
-            
-            console.log('[Responder] Call ended, waiting for next call');
+        // 1. Setup Fixed Canvas (HD Landscape)
+        if (recordingCanvas.width !== 1280) {
+          recordingCanvas.width = 1280;
+          recordingCanvas.height = 720;
         }
-        
-        // Listen for new call events
-        socket.on('new-call', (data) => {
-            console.log('[Responder] ========================================');
-            console.log('[Responder] NEW CALL EVENT RECEIVED!');
-            console.log('[Responder] Data:', JSON.stringify(data, null, 2));
-            console.log('[Responder] Current isInCall:', isInCall);
-            console.log('[Responder] Current callId:', callId);
-            console.log('[Responder] ========================================');
-            
-            if (isInCall) {
-                console.log('[Responder] Already in a call, ignoring new call');
-                return;
+
+        const ctx = recordingCtx;
+        const cw = recordingCanvas.width;
+        const ch = recordingCanvas.height;
+
+        // 2. Background (Black)
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, cw, ch);
+
+        // 3. Draw Remote Video (Contained/Letterboxed)
+        // readyState >= 2 means HAVE_CURRENT_DATA (enough to draw a frame)
+        if (remoteVideo.readyState >= 2) {
+          const vw = remoteVideo.videoWidth;
+          const vh = remoteVideo.videoHeight;
+
+          if (vw > 0 && vh > 0) {
+            // Calculate "contain" dimensions
+            const scale = Math.min(cw / vw, ch / vh);
+            const dw = vw * scale;
+            const dh = vh * scale;
+            const dx = (cw - dw) / 2;
+            const dy = (ch - dh) / 2;
+
+            ctx.drawImage(remoteVideo, dx, dy, dw, dh);
+          }
+        }
+
+        // 4. Draw Local Video (Picture-in-Picture)
+        if (localVideo.readyState >= 2) {
+          const lvw = localVideo.videoWidth; // Use intrinsic dimensions
+          const lvh = localVideo.videoHeight;
+
+          if (lvw > 0 && lvh > 0) {
+            // PiP Size (e.g., 20% of canvas width)
+            const pipScaleFactor = 0.25;
+            const pipW = cw * pipScaleFactor; // ~320px
+            const pipRatio = lvw / lvh;
+            const pipH = pipW / pipRatio;
+
+            // Position: Top Right with padding
+            const padding = 20;
+            const pipX = cw - pipW - padding;
+            const pipY = padding;
+
+            // Add border/shadow effect
+            ctx.strokeStyle = "white";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(pipX, pipY, pipW, pipH);
+
+            ctx.drawImage(localVideo, pipX, pipY, pipW, pipH);
+          }
+        }
+
+        drawingFrameId = requestAnimationFrame(drawCanvasFrame);
+      }
+
+      async function startRecording() {
+        if (!remoteVideo.srcObject) {
+          alert("No active video call to record.");
+          return;
+        }
+
+        try {
+          // Clear previous recording data
+          recordedChunks = [];
+
+          // Set flag TRUE immediately so drawing loop runs
+          isRecording = true;
+          recordBtn.innerText = "STOP";
+          recordBtn.style.background = "#e74c3c";
+          recordBtn.classList.add("recording-pulse");
+
+          // Ensure audio context is running
+          if (audioContext.state === "suspended") {
+            await audioContext.resume();
+            console.log("[Recording] Audio context resumed");
+          }
+
+          console.log("[Recording] Audio Context State:", audioContext.state);
+
+          // Clear and Rebuild Audio Graph
+          // Disconnect old sources if any (not easily possible without tracking, so we rely on stream)
+
+          // Add Local Audio
+          if (localStream && localStream.getAudioTracks().length > 0) {
+            const localAudioTrack = localStream.getAudioTracks()[0];
+            console.log(
+              "[Recording] Local Audio Track:",
+              localAudioTrack.label,
+              "enabled:",
+              localAudioTrack.enabled,
+            );
+            const localSource =
+              audioContext.createMediaStreamSource(localStream);
+            localSource.connect(destAudioNode);
+            console.log("[Recording] ✓ Connected Local Audio");
+          } else {
+            console.warn("[Recording] ✗ No Local Audio Tracks found");
+          }
+
+          // Add Remote Audio
+          const remoteStream = remoteVideo.srcObject;
+          if (remoteStream && remoteStream.getAudioTracks().length > 0) {
+            const remoteAudioTrack = remoteStream.getAudioTracks()[0];
+            console.log(
+              "[Recording] Remote Audio Track:",
+              remoteAudioTrack.label,
+              "enabled:",
+              remoteAudioTrack.enabled,
+            );
+            const remoteSource =
+              audioContext.createMediaStreamSource(remoteStream);
+            remoteSource.connect(destAudioNode);
+            console.log("[Recording] ✓ Connected Remote Audio");
+          } else {
+            console.warn("[Recording] ✗ No Remote Audio Tracks found");
+          }
+
+          console.log(
+            "[Recording] Destination Audio Tracks:",
+            destAudioNode.stream.getAudioTracks().length,
+          );
+
+          // 5. Setup Canvas
+          recordingCanvas = document.createElement("canvas");
+          recordingCanvas.width = 1280;
+          recordingCanvas.height = 720;
+          recordingCtx = recordingCanvas.getContext("2d");
+
+          drawCanvasFrame();
+
+          const canvasStream = recordingCanvas.captureStream(30);
+          const mixedStream = new MediaStream();
+
+          canvasStream
+            .getVideoTracks()
+            .forEach((track) => mixedStream.addTrack(track));
+
+          // CRITICAL: Check if destination node has tracks
+          if (destAudioNode.stream.getAudioTracks().length > 0) {
+            destAudioNode.stream
+              .getAudioTracks()
+              .forEach((track) => mixedStream.addTrack(track));
+            console.log("[Recording] Mixed Audio Track added to Recorder");
+          } else {
+            console.error("[Recording] No Mixed Audio Tracks available!");
+          }
+
+          let mimeType = "video/webm";
+          let extension = "webm";
+
+          // Try VP9 first (best quality for WebM)
+          if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")) {
+            mimeType = "video/webm;codecs=vp9,opus";
+            extension = "webm";
+            console.log("[Recording] Using VP9 + Opus codec");
+          } else if (
+            MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
+          ) {
+            mimeType = "video/webm;codecs=vp8,opus";
+            extension = "webm";
+            console.log("[Recording] Using VP8 + Opus codec");
+          } else if (
+            MediaRecorder.isTypeSupported("video/webm;codecs=h264,opus")
+          ) {
+            mimeType = "video/webm;codecs=h264,opus";
+            extension = "webm";
+            console.log("[Recording] Using H264 + Opus codec");
+          } else {
+            console.log("[Recording] Using default WebM codec");
+          }
+
+          console.log(
+            `[Recording] Selected MIME: ${mimeType}, Ext: ${extension}`,
+          );
+
+          mediaRecorder = new MediaRecorder(mixedStream, {
+            mimeType: mimeType,
+          });
+          mediaRecorder.fileExtension = extension;
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+              recordedChunks.push(event.data);
+              console.log(
+                `[Recording] Data chunk received: ${event.data.size} bytes`,
+              );
             }
-            
-            console.log('[Responder] Processing new WebRTC call...');
-            
-            // Show Incoming Call Modal
-            callId = data.callId;
-            console.log('[Responder] Set callId to:', callId);
-            console.log('[Responder] Showing incoming call modal...');
-            incomingCallModal.style.display = 'flex';
-            console.log('[Responder] Modal display set to flex');
-            
-            // Play ringtone if possible (optional, omitting for simplicity/permission)
-        });
-        
-        // Handle Answer/Decline
-        answerBtn.onclick = () => {
-            console.log('[Responder] Call Answered');
-            incomingCallModal.style.display = 'none';
-            isInCall = true;
-            
-            waitingMessage.textContent = 'Connecting...';
-            waitingScreen.style.display = 'none';
-            videoContainer.style.display = 'block';
-            
-            // Ensure strict ordering: UI update first, then Async Init
+          };
+
+          mediaRecorder.onstop = () => {
+            console.log(
+              "[Recording] MediaRecorder stopped, processing chunks...",
+            );
+            const type =
+              mediaRecorder.fileExtension === "mp4"
+                ? "video/mp4"
+                : "video/webm";
+            const blob = new Blob(recordedChunks, { type: type });
+            console.log(`[Recording] Final blob size: ${blob.size} bytes`);
+
+            // Create object URL for download and playback
+            const url = URL.createObjectURL(blob);
+            downloadRecording(blob, url, mediaRecorder.fileExtension);
+
+            // Use a small delay before showing playback to ensure blob is ready
             setTimeout(() => {
-                initCall();
+              showPlaybackModal(url);
             }, 100);
-        };
+          };
 
-        // Handle Declines
-        declineBtn.onclick = () => {
-             console.log('[Responder] Call Ignored');
-             incomingCallModal.style.display = 'none';
-             callId = null;
-        };
-
-        // Global end-call listener
-        socket.on('end-call', () => {
-            console.log('[Responder] Call ended remotely');
-            // If modal is showing, hide it
-            incomingCallModal.style.display = 'none';
-            
-            if (isInCall) {
-                endCall();
-            }
-        });
-        
-        async function initCall() {
-            try {
-                console.log('[Responder] Initializing WebRTC call...');
-                statusText.textContent = 'Initializing...';
-                
-                // Get local media
-                localStream = await navigator.mediaDevices.getUserMedia({
-                    video: true,
-                    audio: true
-                });
-                
-                localVideo.srcObject = localStream;
-                console.log('[Responder] Local media obtained');
-                statusText.textContent = 'Camera ready...';
-                
-                // Initialize audio mixing for recording
-                setupAudioMixing();
-                console.log('[Responder] Audio mixing initialized');
-                
-                // Create peer connection
-                peerConnection = new RTCPeerConnection(configuration);
-                
-                // Add local tracks
-                localStream.getTracks().forEach(track => {
-                    peerConnection.addTrack(track, localStream);
-                });
-                
-                // Handle remote stream
-                peerConnection.ontrack = (event) => {
-                    console.log('[Responder] Remote track received');
-                    const stream = event.streams[0];
-                    remoteVideo.srcObject = stream;
-                    
-                    // Attach same stream to background video for blur effect
-                    const bgVideo = document.getElementById('bgVideo');
-                    if (bgVideo) {
-                        bgVideo.srcObject = stream;
-                    }
-                    
-                    statusText.textContent = 'Connected';
-                    statusIndicator.classList.remove('waiting');
-                    statusIndicator.classList.add('connected');
-                };
-                
-                // Handle ICE candidates
-                peerConnection.onicecandidate = (event) => {
-                    if (event.candidate) {
-                        console.log('[Responder] Sending ICE candidate');
-                        socket.emit('ice-candidate', {
-                            room: callId,
-                            candidate: event.candidate
-                        });
-                    }
-                };
-                
-                console.log('[Responder] Joining call room...');
-                statusText.textContent = 'Joining call...';
-                
-                // Join the call
-                socket.emit('join-call', {
-                    callId: callId,
-                    token: 'responder-auto',
-                    role: 'responder'
-                });
-                
-                // Remove old listeners to prevent duplicates
-                socket.off('offer');
-                socket.off('answer');
-                socket.off('ice-candidate');
-                
-                // Listen for offer from citizen
-                socket.on('offer', async (data) => {
-                    console.log('[Responder] Received offer from citizen');
-                    statusText.textContent = 'Establishing connection...';
-                    
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data));
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    
-                    socket.emit('answer', {
-                        room: callId,
-                        sdp: answer
-                    });
-                    
-                    console.log('[Responder] Sent answer to citizen');
-                });
-                
-                // Listen for answer
-                socket.on('answer', async (data) => {
-                    console.log('[Responder] Received answer');
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data));
-                });
-                
-                // Listen for ICE candidates
-                socket.on('ice-candidate', async (data) => {
-                    console.log('[Responder] Received ICE candidate');
-                    try {
-                        await peerConnection.addIceCandidate(new RTCIceCandidate(data));
-                    } catch (e) {
-                        console.error('[Responder] Error adding ICE candidate:', e);
-                    }
-                });
-                
-                // Create offer after short delay
-                setTimeout(async () => {
-                    console.log('[Responder] Creating offer');
-                    const offer = await peerConnection.createOffer();
-                    await peerConnection.setLocalDescription(offer);
-                    
-                    socket.emit('offer', {
-                        room: callId,
-                        sdp: offer
-                    });
-                    
-                    console.log('[Responder] Sent offer to citizen');
-                }, 1000);
-                
-            } catch (error) {
-                console.error('[Responder] Error initializing call:', error);
-                statusText.textContent = 'Error: ' + error.message;
-                statusIndicator.style.background = '#e74c3c';
-            }
+          // Use 100ms timeslice for better metadata
+          mediaRecorder.start(100);
+          console.log("[Recording] Started with 100ms timeslice");
+        } catch (e) {
+          console.error("[Recording] Failed to start:", e);
+          alert("Could not start recording: " + e.message);
+          isRecording = false;
+          recordBtn.innerHTML =
+            '<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3" fill="currentColor"></circle></svg>';
+          recordBtn.classList.remove("recording-pulse");
         }
-        
-        // Control buttons
-        micBtn.addEventListener('click', () => {
-            micEnabled = !micEnabled;
-            if (localStream) {
-                localStream.getAudioTracks()[0].enabled = micEnabled;
-            }
-            micBtn.classList.toggle('muted', !micEnabled);
-            
-            // Update Icon
-            if (micEnabled) {
-                 micBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
-            } else {
-                 micBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
-            }
-        });
-        
-        cameraBtn.addEventListener('click', () => {
-            cameraEnabled = !cameraEnabled;
-            if (localStream) {
-                localStream.getVideoTracks()[0].enabled = cameraEnabled;
-            }
-            cameraBtn.classList.toggle('off', !cameraEnabled);
-            
-            if (cameraEnabled) {
-                cameraBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>';
-            } else {
-                cameraBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l22 22"></path><path d="M21 21l-9.19-9.19a2 2 0 0 0-1.21-2.91L10 8h-.4L7.6 5H4a2 2 0 0 0-2 2v9.6c0 1.1.9 2 2 2h16.4z"></path><path d="M23 7l-5 5-2.2-2.2M23 1H10"></path></svg>';
-            }
-        });
-        
-        hangupBtn.addEventListener('click', () => {
-            socket.emit('end-call', { room: callId });
-            endCall();
+      }
+
+      function stopRecording() {
+        if (mediaRecorder && mediaRecorder.state !== "inactive") {
+          mediaRecorder.stop();
+          isRecording = false;
+          cancelAnimationFrame(drawingFrameId);
+          // Reset Icon to Rec
+          recordBtn.innerHTML =
+            '<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3" fill="currentColor"></circle></svg>';
+          recordBtn.style.background = "rgba(255, 255, 255, 0.2)";
+          recordBtn.classList.remove("recording-pulse");
+          console.log("[Recording] Stopped");
+        }
+      }
+
+      function downloadRecording(blob, url, extension) {
+        if (recordedChunks.length === 0) {
+          console.error("[Recording] No data recorded!");
+          alert("Recording failed: No data captured.");
+          return;
+        }
+
+        // Create blob with correct MIME type
+        // Note: For .mkv we still use 'video/webm' mime type as browser doesn't know 'video/x-matroska'
+        // const type = extension === 'mp4' ? 'video/mp4' : 'video/webm'; // This is now passed in
+        // const blob = new Blob(recordedChunks, { type: type }); // This is now passed in
+        console.log(
+          `[Recording] Blob created: ${blob.size} bytes, type: ${blob.type}`,
+        );
+
+        // const url = URL.createObjectURL(blob); // This is now passed in
+        const a = document.createElement("a");
+        document.body.appendChild(a);
+        a.style.display = "none";
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        a.href = url;
+        a.download = `incident-${callId || "unknown"}-${timestamp}.${extension}`;
+        a.click();
+
+        // Cleanup handled by modal close or timeout
+        setTimeout(() => {
+          document.body.removeChild(a);
+        }, 100);
+        recordedChunks = []; // Reset
+        console.log("[Recording] Download triggered");
+      }
+
+      function showPlaybackModal(videoUrl) {
+        const modal = document.createElement("div");
+        modal.style.position = "fixed";
+        modal.style.top = "0";
+        modal.style.left = "0";
+        modal.style.width = "100%";
+        modal.style.height = "100%";
+        modal.style.background = "rgba(0,0,0,0.9)";
+        modal.style.zIndex = "10000";
+        modal.style.display = "flex";
+        modal.style.flexDirection = "column";
+        modal.style.alignItems = "center";
+        modal.style.justifyContent = "center";
+
+        const video = document.createElement("video");
+        video.src = videoUrl;
+        video.controls = true;
+        video.preload = "metadata"; // Force metadata loading
+        video.style.maxWidth = "90%";
+        video.style.maxHeight = "80%";
+        video.style.border = "2px solid white";
+
+        // Try to force duration detection
+        let durationFixed = false;
+
+        video.addEventListener("loadedmetadata", function () {
+          console.log("[Playback] Metadata loaded, duration:", video.duration);
+
+          // If duration is still invalid, try the seek trick
+          if (!isFinite(video.duration) || video.duration === 0) {
+            console.warn(
+              "[Playback] Invalid duration detected, attempting fix...",
+            );
+
+            // Seek to a very large time to force browser to find actual duration
+            const seekTime = 1e10; // Very large number
+            video.currentTime = seekTime;
+
+            video.addEventListener(
+              "seeked",
+              function onSeeked() {
+                console.log(
+                  "[Playback] Seeked to:",
+                  video.currentTime,
+                  "Duration now:",
+                  video.duration,
+                );
+
+                if (isFinite(video.duration) && video.duration > 0) {
+                  durationFixed = true;
+                  console.log("[Playback] ✓ Duration fixed:", video.duration);
+                  // Reset to start
+                  video.currentTime = 0;
+                  video.play();
+                }
+
+                video.removeEventListener("seeked", onSeeked);
+              },
+              { once: true },
+            );
+          } else {
+            console.log("[Playback] ✓ Valid duration:", video.duration);
+            durationFixed = true;
+            video.play();
+          }
         });
 
+        video.addEventListener("error", function (e) {
+          console.error("[Playback] Video error:", e, video.error);
+          alert(
+            "Error playing video: " +
+              (video.error ? video.error.message : "Unknown error"),
+          );
+        });
+
+        // Log timeupdate to verify playback is working
+        video.addEventListener("timeupdate", function () {
+          if (!durationFixed) {
+            console.log(
+              "[Playback] Time:",
+              video.currentTime,
+              "Duration:",
+              video.duration,
+            );
+          }
+        });
+
+        const closeBtn = document.createElement("button");
+        closeBtn.innerText = "Close & Save";
+        closeBtn.style.marginTop = "20px";
+        closeBtn.style.padding = "10px 20px";
+        closeBtn.style.fontSize = "18px";
+        closeBtn.style.cursor = "pointer";
+        closeBtn.onclick = () => {
+          video.pause();
+          document.body.removeChild(modal);
+          URL.revokeObjectURL(videoUrl); // Clean up
+        };
+
+        modal.appendChild(video);
+        modal.appendChild(closeBtn);
+        document.body.appendChild(modal);
+      }
+
+      recordBtn.onclick = () => {
+        if (!isRecording) {
+          startRecording();
+        } else {
+          stopRecording();
+        }
+      };
+
+      // Define endCall function to handle call termination
+      function endCall() {
+        if (isRecording) {
+          console.log("[Recording] Call ended, stopping recording...");
+          stopRecording();
+        }
+        // Close audio context to free resources
+        if (audioContext && audioContext.state !== "closed") {
+          audioContext.close();
+          audioContext = null;
+        }
+        // Stop all media tracks
+        if (localStream) {
+          localStream.getTracks().forEach((track) => track.stop());
+        }
+        if (peerConnection) {
+          peerConnection.close();
+        }
+
+        // Reset state
+        isInCall = false;
+        callId = null;
+
+        // Reset UI
+        videoContainer.style.display = "none";
+        waitingScreen.style.display = "flex";
+        waitingMessage.textContent = "Waiting for emergency calls...";
+        statusText.textContent = "Connecting...";
+        statusIndicator.classList.remove("connected");
+        statusIndicator.classList.add("waiting");
+
+        micEnabled = true;
+        cameraEnabled = true;
+        micBtn.classList.remove("muted");
+        cameraBtn.classList.remove("off");
+
+        console.log("[Responder] Call ended, waiting for next call");
+      }
+
+      // Listen for new call events
+      socket.on("new-call", (data) => {
+        console.log("[Responder] ========================================");
+        console.log("[Responder] NEW CALL EVENT RECEIVED!");
+        console.log("[Responder] Data:", JSON.stringify(data, null, 2));
+        console.log("[Responder] Current isInCall:", isInCall);
+        console.log("[Responder] Current callId:", callId);
+        console.log("[Responder] ========================================");
+
+        if (isInCall) {
+          console.log("[Responder] Already in a call, ignoring new call");
+          return;
+        }
+
+        console.log("[Responder] Processing new WebRTC call...");
+
+        // Show Incoming Call Modal
+        callId = data.callId;
+        console.log("[Responder] Set callId to:", callId);
+        console.log("[Responder] Showing incoming call modal...");
+        incomingCallModal.style.display = "flex";
+        console.log("[Responder] Modal display set to flex");
+
+        // Play ringtone if possible (optional, omitting for simplicity/permission)
+      });
+
+      // Handle Answer/Decline
+      answerBtn.onclick = () => {
+        console.log("[Responder] Call Answered");
+        incomingCallModal.style.display = "none";
+        isInCall = true;
+
+        waitingMessage.textContent = "Connecting...";
+        waitingScreen.style.display = "none";
+        videoContainer.style.display = "block";
+
+        // Ensure strict ordering: UI update first, then Async Init
+        setTimeout(() => {
+          initCall();
+        }, 100);
+      };
+
+      // Handle Declines
+      declineBtn.onclick = () => {
+        console.log("[Responder] Call Ignored");
+        incomingCallModal.style.display = "none";
+        callId = null;
+      };
+
+      // Global end-call listener
+      socket.on("end-call", () => {
+        console.log("[Responder] Call ended remotely");
+        // If modal is showing, hide it
+        incomingCallModal.style.display = "none";
+
+        if (isInCall) {
+          endCall();
+        }
+      });
+
+      async function initCall() {
+        try {
+          console.log("[Responder] Initializing WebRTC call...");
+          statusText.textContent = "Initializing...";
+
+          // Get local media
+          localStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true,
+          });
+
+          localVideo.srcObject = localStream;
+          console.log("[Responder] Local media obtained");
+          statusText.textContent = "Camera ready...";
+
+          // Initialize audio mixing for recording
+          setupAudioMixing();
+          console.log("[Responder] Audio mixing initialized");
+
+          // Create peer connection
+          peerConnection = new RTCPeerConnection(configuration);
+
+          // Add local tracks
+          localStream.getTracks().forEach((track) => {
+            peerConnection.addTrack(track, localStream);
+          });
+
+          // Handle remote stream
+          peerConnection.ontrack = (event) => {
+            console.log("[Responder] Remote track received");
+            const stream = event.streams[0];
+            remoteVideo.srcObject = stream;
+
+            // Attach same stream to background video for blur effect
+            const bgVideo = document.getElementById("bgVideo");
+            if (bgVideo) {
+              bgVideo.srcObject = stream;
+            }
+
+            statusText.textContent = "Connected";
+            statusIndicator.classList.remove("waiting");
+            statusIndicator.classList.add("connected");
+          };
+
+          // Handle ICE candidates
+          peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+              console.log("[Responder] Sending ICE candidate");
+              socket.emit("ice-candidate", {
+                room: callId,
+                candidate: event.candidate,
+              });
+            }
+          };
+
+          console.log("[Responder] Joining call room...");
+          statusText.textContent = "Joining call...";
+
+          // Join the call
+          socket.emit("join-call", {
+            callId: callId,
+            token: "responder-auto",
+            role: "responder",
+          });
+
+          // Remove old listeners to prevent duplicates
+          socket.off("offer");
+          socket.off("answer");
+          socket.off("ice-candidate");
+
+          // Listen for offer from citizen
+          socket.on("offer", async (data) => {
+            console.log("[Responder] Received offer from citizen");
+            statusText.textContent = "Establishing connection...";
+
+            await peerConnection.setRemoteDescription(
+              new RTCSessionDescription(data),
+            );
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+
+            socket.emit("answer", {
+              room: callId,
+              sdp: answer,
+            });
+
+            console.log("[Responder] Sent answer to citizen");
+          });
+
+          // Listen for answer
+          socket.on("answer", async (data) => {
+            console.log("[Responder] Received answer");
+            await peerConnection.setRemoteDescription(
+              new RTCSessionDescription(data),
+            );
+          });
+
+          // Listen for ICE candidates
+          socket.on("ice-candidate", async (data) => {
+            console.log("[Responder] Received ICE candidate");
+            try {
+              await peerConnection.addIceCandidate(new RTCIceCandidate(data));
+            } catch (e) {
+              console.error("[Responder] Error adding ICE candidate:", e);
+            }
+          });
+
+          // Create offer after short delay
+          setTimeout(async () => {
+            console.log("[Responder] Creating offer");
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+
+            socket.emit("offer", {
+              room: callId,
+              sdp: offer,
+            });
+
+            console.log("[Responder] Sent offer to citizen");
+          }, 1000);
+        } catch (error) {
+          console.error("[Responder] Error initializing call:", error);
+          statusText.textContent = "Error: " + error.message;
+          statusIndicator.style.background = "#e74c3c";
+        }
+      }
+
+      // Control buttons
+      micBtn.addEventListener("click", () => {
+        micEnabled = !micEnabled;
+        if (localStream) {
+          localStream.getAudioTracks()[0].enabled = micEnabled;
+        }
+        micBtn.classList.toggle("muted", !micEnabled);
+
+        // Update Icon
+        if (micEnabled) {
+          micBtn.innerHTML =
+            '<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+        } else {
+          micBtn.innerHTML =
+            '<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+        }
+      });
+
+      cameraBtn.addEventListener("click", () => {
+        cameraEnabled = !cameraEnabled;
+        if (localStream) {
+          localStream.getVideoTracks()[0].enabled = cameraEnabled;
+        }
+        cameraBtn.classList.toggle("off", !cameraEnabled);
+
+        if (cameraEnabled) {
+          cameraBtn.innerHTML =
+            '<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>';
+        } else {
+          cameraBtn.innerHTML =
+            '<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l22 22"></path><path d="M21 21l-9.19-9.19a2 2 0 0 0-1.21-2.91L10 8h-.4L7.6 5H4a2 2 0 0 0-2 2v9.6c0 1.1.9 2 2 2h16.4z"></path><path d="M23 7l-5 5-2.2-2.2M23 1H10"></path></svg>';
+        }
+      });
+
+      hangupBtn.addEventListener("click", () => {
+        socket.emit("end-call", { room: callId });
+        endCall();
+      });
+
+      // --- AUTO-JOIN LOGIC ---
+      // Automatically join the call if 'room' and 'auto_join' params are present
+      window.addEventListener("DOMContentLoaded", () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        // 'room' format from URL might be 'sos-uuid', we just need that ID
+        const room = urlParams.get("room");
+        const autoJoin = urlParams.get("auto_join");
+
+        console.log("[AutoJoin] Params:", { room, autoJoin });
+
+        if (room && autoJoin === "true") {
+          console.log("[AutoJoin] Auto-joining room:", room);
+          callId = room;
+
+          // Immediate UI switch
+          waitingScreen.style.display = "none";
+          videoContainer.style.display = "block";
+
+          // Delay slightly to ensure socket connection is ready, then INIT
+          // Socket connect usually happens fast, but we need to be sure
+          if (socket.connected) {
+            initCall();
+          } else {
+            socket.once("connect", () => {
+              console.log("[AutoJoin] Socket connected, initializing call...");
+              initCall();
+            });
+          }
+        }
+      });
     </script>
-</body>
+  </body>
 </html>

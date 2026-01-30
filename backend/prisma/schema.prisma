@@ -10,39 +10,35 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id          String   @id @default(uuid())
+model Reporter {
+  id          Int      @id @default(autoincrement())
+  fullName    String   @map("full_name")
+  phoneNumber String   @unique @map("phone_number")
   email       String?  @unique
-  facebookId  String?  @unique
-  firebaseUid String?  @unique // Firebase UID for phone authentication
+  username    String?  @unique
+  password    String?  @map("password_hash")
   
-  // Verification Fields
-  isVerified         Boolean   @default(false)
-  verificationStatus String    @default("UNVERIFIED") // UNVERIFIED, PENDING, VERIFIED, REJECTED
-  idImageUrl         String?
-  verificationNote   String?
-
-  password    String
-  fullName    String
-  
-  // Personal Info (Collected during Verification)
-  sex         String? // Male, Female, Prefer not to say
+  // Demographics
+  sex         String?
   birthday    DateTime?
   age         Int?
   
-  phoneNumber String?
-  phoneVerified Boolean @default(false)
+  // Address
+  residentialAddress String? @map("residential_address")
+  municipality      String?
+  province          String?
+  region            String?
   
-  // Declared Address (Residency)
-  city          String?
-  barangay      String?
-  addressDetail String?
-
+  // Meta
   role        String   @default("CITIZEN")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
   reports     Report[]
-  sosAlerts   SOSAlert[]
+  sosEvents   ReporterSosEvent[]
+
+  @@map("reporters")
 }
 
 model Report {
@@ -74,17 +70,20 @@ model Report {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
+  reporterId  Int
+  reporter    Reporter @relation(fields: [reporterId], references: [id])
 }
 
-model SOSAlert {
-  id        String   @id @default(uuid())
-  latitude  Float
-  longitude Float
-  status    String   @default("ACTIVE") // ACTIVE, RESOLVED
-  createdAt DateTime @default(now())
+model ReporterSosEvent {
+  id          Int      @id @default(autoincrement())
+  latitude    Float
+  longitude   Float
+  message     String?
+  status      String   @default("Active")
+  timestamp   DateTime @default(now())
   
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  reporterId  Int      @map("reporter_id")
+  reporter    Reporter @relation(fields: [reporterId], references: [id])
+
+  @@map("reporter_sos_events")
 }

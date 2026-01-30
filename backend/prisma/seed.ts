@@ -7,20 +7,23 @@ async function main() {
   const email = 'admin@konektizen.com';
   const password = 'password123';
   const fullName = 'Admin User';
+  const phoneNumber = "00000000000"; // Dummy
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  const user = await prisma.user.upsert({
+  const reporter = await prisma.reporter.upsert({
     where: { email },
     update: {},
     create: {
       email,
       password: hashedPassword,
       fullName,
+      phoneNumber,
+      role: 'ADMIN'
     },
   });
 
-  console.log({ user });
+  console.log({ reporter });
 }
 
 main()

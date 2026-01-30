@@ -4,6 +4,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:konektizen/core/services/location_service.dart';
 import 'package:konektizen/features/sos/sos_service.dart';
 import 'package:konektizen/features/sos_video_call/call_screen.dart';
+import 'package:konektizen/features/sos_video_call/command_center_call_screen.dart';
+import 'package:konektizen/features/sos_video_call/signaling_service.dart';
+import 'package:konektizen/core/api/api_service.dart'; // To get userId
 
 class SOSConfirmationScreen extends StatefulWidget {
   const SOSConfirmationScreen({super.key});
@@ -14,13 +17,28 @@ class SOSConfirmationScreen extends StatefulWidget {
 
 class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
   bool _isProcessing = false;
-  bool _sosSent = false;
   String? _hotlineNumber;
+  final SignalingService _signaling = SignalingService.instance; // Singleton ref
 
   @override
   void initState() {
     super.initState();
     _fetchHotline();
+    // OPTIMIZATION: Pre-connect to C3 Socket immediately so we are ready to receive calls instantly.
+    _connectSocketEarly();
+  }
+
+  Future<void> _connectSocketEarly() async {
+    try {
+       final user = await apiService.getCurrentUser();
+       final userId = user?['_id'] ?? user?['id'];
+       if (userId != null) {
+          print('[SOS UI] Pre-connecting Socket for User: $userId');
+          _signaling.listenForIncomingCall(userId.toString());
+       }
+    } catch (e) {
+       print('[SOS UI] Pre-connect error: $e');
+    }
   }
 
   Future<void> _fetchHotline() async {
@@ -29,6 +47,8 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
   }
 
   Future<void> _handleSOS() async {
+    // strict debounce
+    if (_isProcessing) return; 
     setState(() => _isProcessing = true);
 
     // 1. Get Location (Required)
@@ -48,133 +68,47 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
 
     final hotline = _hotlineNumber ?? '911';
 
-    // 2. Send API Record (Background)
-    sosService.sendSOS(
-      latitude: location.latitude, 
-      longitude: location.longitude,
-      hotlineNumber: hotline,
-    );
-    
-    // 3. Start Video Call FIRST (Priority)
+    // 2. Send SOS IMMEDIATELY (Don't wait for anything else)
+    print('[SOS UI] ⚡ SENDING SOS IMMEDIATELY');
     try {
-      final videoSession = await sosService.startVideoCall();
-      if (videoSession != null && mounted) {
-        final callId = videoSession['callId'];
-        final token = videoSession['citizenToken'];
-        
-        setState(() {
-          _isProcessing = false;
-          _sosSent = true;
-        });
-        
-        print('[SOS] Starting WebRTC video call');
-        
-        // Navigate to WebRTC CallScreen
-        try {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => CallScreen(
-                callId: callId, 
-                token: token,
-                role: 'citizen',
-                hotlineNumber: hotline,
-              ),
-            ),
-          );
-        } catch (e) {
-          print('[SOS] ERROR navigating to CallScreen: $e');
-          // If navigation fails, fall back to dialer
-          if (mounted) {
-            final Uri launchUri = Uri(scheme: 'tel', path: hotline);
-            try {
-              if (await canLaunchUrl(launchUri)) {
-                await launchUrl(launchUri);
-              }
-            } catch (dialerError) {
-              print('Error launching dialer: $dialerError');
-            }
-          }
-        }
-      } else {
-        // Fallback: If video call fails, launch dialer
-        if (mounted) {
-          final Uri launchUri = Uri(scheme: 'tel', path: hotline);
-          try {
-            if (await canLaunchUrl(launchUri)) {
-              await launchUrl(launchUri);
-            }
-          } catch (e) {
-            print('Error launching dialer: $e');
-          }
-          
-          setState(() {
-            _isProcessing = false;
-            _sosSent = true;
-          });
-        }
+      // Send SOS and wait for result
+      final success = await sosService.sendSOS(
+        latitude: location.latitude, 
+        longitude: location.longitude,
+        hotlineNumber: hotline,
+      );
+      
+      print('[SOS UI] SOS API Result: $success');
+      
+      if (!success && mounted) {
+        setState(() => _isProcessing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to send SOS. Check connection.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
       }
+
+      // SOS sent successfully - now wait for operator to accept
+      // The call_accepted event listener is already set up in _connectSocketEarly()
+      // When C3 accepts, the SignalingService will automatically open the call screen
+      print('[SOS UI] ✅ SOS sent successfully. Waiting for operator to accept...');
+
     } catch (e) {
-      print('Error starting video call: $e');
-      // Fallback to phone dialer
+      print('[SOS UI] SOS API Error: $e');
       if (mounted) {
-        final Uri launchUri = Uri(scheme: 'tel', path: hotline);
-        try {
-          if (await canLaunchUrl(launchUri)) {
-            await launchUrl(launchUri);
-          }
-        } catch (e) {
-          print('Error launching dialer: $e');
-        }
-        
-        setState(() {
-          _isProcessing = false;
-          _sosSent = true;
-        });
+         setState(() => _isProcessing = false);
+         ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+         );
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_sosSent) {
-      return Scaffold(
-        backgroundColor: Colors.red.shade900,
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.check_circle_outline, color: Colors.white, size: 100),
-                const SizedBox(height: 24),
-                const Text(
-                  'SOS SENT',
-                  style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Command Center has been alerted.\nYou are being connected to the hotline.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white70, fontSize: 18),
-                ),
-                const SizedBox(height: 40),
-                ElevatedButton(
-                  onPressed: () => context.pop(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.red.shade900,
-                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
-                  ),
-                  child: const Text('CLOSE'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
     return Scaffold(
       backgroundColor: Colors.red,
       body: SafeArea(
@@ -211,8 +145,36 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
                 style: TextStyle(color: Colors.white, fontSize: 18),
               ),
               const Spacer(),
-              if (_isProcessing)
-                const CircularProgressIndicator(color: Colors.white)
+                if (_isProcessing)
+                Column(
+                  children: [
+                    const CircularProgressIndicator(color: Colors.white),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'SOS Alert Sent!',
+                      style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Waiting for operator to accept...',
+                      style: TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                    const SizedBox(height: 24),
+                    TextButton(
+                      onPressed: () {
+                        setState(() => _isProcessing = false);
+                        context.pop();
+                      },
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                        side: const BorderSide(color: Colors.white, width: 2),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: const Text('GO BACK', style: TextStyle(fontSize: 16)),
+                    ),
+                  ],
+                )
               else
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,

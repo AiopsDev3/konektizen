@@ -18,10 +18,16 @@ class SOSService {
     if (token == null) return false;
 
     try {
-      // 1. Get current user details to include in the payload
-      final user = await apiService.getCurrentUser();
+      // 1. Try to get current user details (may fail if token expired)
+      Map<String, dynamic>? user;
+      try {
+        user = await apiService.getCurrentUser();
+      } catch (e) {
+        print('[SOS] Warning: Could not get user info (token may be expired): $e');
+        // Continue anyway - C3 can identify user from token
+      }
       
-      final url = Uri.parse('${ApiService.baseUrl}/sos');
+      final url = Uri.parse('${ApiService.baseUrl}/sos/');
       print('Sending SOS to: $url');
       
       final body = {
@@ -60,8 +66,8 @@ class SOSService {
   // Helper for Video Call (Flask)
   Future<Map<String, dynamic>?> startVideoCall() async {
     try {
-      // Flask server IP for WiFi connection
-      final url = Uri.parse('http://172.16.0.101:5000/api/sos/video/start');
+      // Connect to C3 Command Center Web (Socket/Video)
+      final url = Uri.parse('http://172.16.0.140:5001/api/sos/video/start');
       print('[SOS Service] ========================================');
       print('[SOS Service] Starting video call...');
       print('[SOS Service] URL: $url');

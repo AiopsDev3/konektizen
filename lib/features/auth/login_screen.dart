@@ -43,7 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _isLoading = false);
 
       if (result != null) {
-        if (mounted) context.go('/home');
+        if (mounted) _checkVerificationAndProceed(result);
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -75,7 +75,7 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() => _isLoading = false);
 
         if (apiResult != null && apiResult['error'] == null) {
-          if (mounted) context.go('/home');
+          if (mounted) _checkVerificationAndProceed(apiResult);
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -99,6 +99,51 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     }
+  }
+
+  void _checkVerificationAndProceed(Map<String, dynamic> data) {
+    if (!mounted) return;
+
+    final user = data['user'];
+    final isVerified = user?['isVerified'] == true; 
+    
+    if (!isVerified) {
+      _showVerificationPrompt();
+    } else {
+      context.go('/home');
+    }
+  }
+
+  void _showVerificationPrompt() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('I-verify ang iyong account'),
+        content: const Text(
+          'Para magamit nang buo ang KONEKTIZEN',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); 
+              context.go('/home'); 
+            },
+            child: const Text('\'Wag muna'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              context.go('/home');
+              Future.delayed(const Duration(milliseconds: 100), () {
+                if (mounted) context.push('/verify-id');
+              });
+            },
+            child: const Text('Mag-verify ngayon'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

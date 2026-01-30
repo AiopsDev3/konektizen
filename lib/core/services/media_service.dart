@@ -99,7 +99,7 @@ class MediaService {
       // For now, we'll use a simple approach
       // In production, you'd upload to Firebase Storage, AWS S3, etc.
       
-      final uri = Uri.parse('${ApiService.baseUrl}/upload');
+      final uri = Uri.parse('${ApiService.baseUrl}/reporters/upload');
       final request = http.MultipartRequest('POST', uri);
       
       request.files.add(

@@ -43,31 +43,46 @@ class VerificationService {
     final token = await getToken();
     if (token == null) throw Exception('No token found');
 
-    var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/verification/upload'));
-    request.headers['Authorization'] = 'Bearer $token';
-    request.headers['Bypass-Tunnel-Reminder'] = 'true';
+    try {
+      var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/kyc/upload'));
+      request.headers['Authorization'] = 'Bearer $token';
+      request.headers['Bypass-Tunnel-Reminder'] = 'true';
 
-    // Add Address Fields
-    request.fields['city'] = city;
-    request.fields['barangay'] = barangay;
-    if (addressDetail != null) request.fields['addressDetail'] = addressDetail;
-    
-    // Add Personal Info Fields
-    if (sex != null) request.fields['sex'] = sex;
-    if (birthday != null) request.fields['birthday'] = birthday.toIso8601String();
-    if (age != null) request.fields['age'] = age.toString();
-    if (phoneNumber != null) request.fields['phoneNumber'] = phoneNumber;
-    request.fields['phoneVerified'] = phoneVerified.toString();
+      // Add Address Fields
+      request.fields['city'] = city;
+      request.fields['barangay'] = barangay;
+      if (addressDetail != null) request.fields['addressDetail'] = addressDetail;
+      
+      // Add Personal Info Fields
+      if (sex != null) request.fields['sex'] = sex;
+      if (birthday != null) request.fields['birthday'] = birthday.toIso8601String();
+      if (age != null) request.fields['age'] = age.toString();
+      if (phoneNumber != null) request.fields['phoneNumber'] = phoneNumber;
+      request.fields['phoneVerified'] = phoneVerified.toString();
 
-    request.files.add(await http.MultipartFile.fromPath('idImage', imageFile.path));
+      request.files.add(await http.MultipartFile.fromPath('idImage', imageFile.path));
 
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
+      print('Uploading ID to: $baseUrl/kyc/upload');
+      
+      final streamedResponse = await request.send().timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw Exception('Upload timeout - server not responding');
+        },
+      );
+      
+      final response = await http.Response.fromStream(streamedResponse);
+      
+      print('Upload response: ${response.statusCode} - ${response.body}');
 
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      throw Exception('Failed to upload ID and address: ${response.body}');
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return jsonDecode(response.body);
+      } else {
+        throw Exception('Failed to upload ID and address: ${response.body}');
+      }
+    } catch (e) {
+      print('Upload error: $e');
+      throw Exception('Failed to upload ID: $e');
     }
   }
 
@@ -75,24 +90,38 @@ class VerificationService {
     final token = await getToken();
     if (token == null) throw Exception('No token found');
 
-    final response = await http.post(
-      Uri.parse('$baseUrl/verification/analyze'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-        'Bypass-Tunnel-Reminder': 'true',
-      },
-    );
+    print('Analyzing ID at: $baseUrl/kyc/analyze');
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      if (data['success'] == true && data['result'] != null) {
-        return VerificationResult.fromJson(data['result']);
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/kyc/analyze'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+          'Bypass-Tunnel-Reminder': 'true',
+        },
+      ).timeout(
+        const Duration(seconds: 120),
+        onTimeout: () {
+          throw Exception('Verification Service Timeout/Unavailable');
+        },
+      );
+
+      print('Analyze response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true && data['result'] != null) {
+          return VerificationResult.fromJson(data['result']);
+        }
+        throw Exception('Verification returned invalid format');
+      } else {
+        final error = jsonDecode(response.body);
+        throw Exception(error['error'] ?? 'Verification failed');
       }
-      throw Exception('Verification returned invalid format');
-    } else {
-      final error = jsonDecode(response.body);
-      throw Exception(error['error'] ?? 'Verification failed');
+    } catch (e) {
+      print('Analyze error: $e');
+      rethrow;
     }
   }
 }

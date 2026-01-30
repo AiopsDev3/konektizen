@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -132,11 +133,11 @@ class _ReportSubmitScreenState extends ConsumerState<ReportSubmitScreen> {
     }
   }
 
-  void _showMediaPreview(BuildContext context, String url, String type) {
+  void _showMediaPreview(BuildContext context, String url, String type, String? localPath) {
     if (type == 'video') {
       showDialog(
         context: context,
-        builder: (ctx) => _VideoPreviewDialog(url: url),
+        builder: (ctx) => _VideoPreviewDialog(url: url, localPath: localPath),
       );
     } else {
       showDialog(
@@ -148,11 +149,17 @@ class _ReportSubmitScreenState extends ConsumerState<ReportSubmitScreen> {
             alignment: Alignment.center,
             children: [
               InteractiveViewer(
-                child: Image.network(
-                  url,
-                  fit: BoxFit.contain,
-                  errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.white, size: 64),
-                ),
+                child: localPath != null
+                  ? Image.file(
+                      File(localPath),
+                      fit: BoxFit.contain,
+                      errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.white, size: 64),
+                    )
+                  : Image.network(
+                      url,
+                      fit: BoxFit.contain,
+                      errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.white, size: 64),
+                    ),
               ),
               Positioned(
                 top: 40,
@@ -302,9 +309,10 @@ class _ReportSubmitScreenState extends ConsumerState<ReportSubmitScreen> {
                   final url = draft.mediaUrls[index];
                   // Handle case where types might be out of sync (though they shouldn't be)
                   final type = index < draft.mediaTypes.length ? draft.mediaTypes[index] : 'photo';
+                  final localPath = (index < draft.localMediaPaths.length) ? draft.localMediaPaths[index] : null;
                   
                   return GestureDetector(
-                    onTap: () => _showMediaPreview(context, url, type),
+                    onTap: () => _showMediaPreview(context, url, type, localPath),
                     child: Container(
                       width: 80,
                       height: 80,
@@ -318,11 +326,13 @@ class _ReportSubmitScreenState extends ConsumerState<ReportSubmitScreen> {
                         fit: StackFit.expand,
                         children: [
                           if (type == 'photo')
-                            Image.network(
-                              url, 
-                              fit: BoxFit.cover,
-                              errorBuilder: (c, e, s) => const Icon(Icons.broken_image),
-                            )
+                            localPath != null
+                              ? Image.file(File(localPath), fit: BoxFit.cover)
+                              : Image.network(
+                                  url, 
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (c, e, s) => const Icon(Icons.broken_image),
+                                )
                           else
                             const Center(child: Icon(Icons.videocam, color: Colors.grey, size: 32)),
                           
@@ -477,7 +487,8 @@ class _ReportSubmitScreenState extends ConsumerState<ReportSubmitScreen> {
 
 class _VideoPreviewDialog extends StatefulWidget {
   final String url;
-  const _VideoPreviewDialog({required this.url});
+  final String? localPath;
+  const _VideoPreviewDialog({required this.url, this.localPath});
 
   @override
   State<_VideoPreviewDialog> createState() => _VideoPreviewDialogState();
@@ -494,7 +505,11 @@ class _VideoPreviewDialogState extends State<_VideoPreviewDialog> {
   }
 
   Future<void> _initializePlayer() async {
-    _videoController = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    if (widget.localPath != null) {
+      _videoController = VideoPlayerController.file(File(widget.localPath!));
+    } else {
+      _videoController = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    }
     await _videoController.initialize();
     
     if (mounted) {

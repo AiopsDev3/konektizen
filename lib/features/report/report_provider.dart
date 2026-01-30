@@ -38,6 +38,7 @@ class ReportDraftState {
   // Media evidence
   final List<String> mediaUrls;
   final List<String> mediaTypes;
+  final List<String> localMediaPaths;
   
   // Reporter information (for validation)
   final double? reporterLatitude;
@@ -63,6 +64,7 @@ class ReportDraftState {
     this.longitude,
     this.mediaUrls = const [],
     this.mediaTypes = const [],
+    this.localMediaPaths = const [],
     this.isAnalyzing = false,
     this.analysisError,
     this.detectedLanguage,
@@ -86,6 +88,7 @@ class ReportDraftState {
     double? longitude,
     List<String>? mediaUrls,
     List<String>? mediaTypes,
+    List<String>? localMediaPaths,
     bool? isAnalyzing,
     String? analysisError,
     String? detectedLanguage,
@@ -107,6 +110,7 @@ class ReportDraftState {
       longitude: longitude ?? this.longitude,
       mediaUrls: mediaUrls ?? this.mediaUrls,
       mediaTypes: mediaTypes ?? this.mediaTypes,
+      localMediaPaths: localMediaPaths ?? this.localMediaPaths,
       isAnalyzing: isAnalyzing ?? this.isAnalyzing,
       analysisError: analysisError ?? this.analysisError,
       detectedLanguage: detectedLanguage ?? this.detectedLanguage,
@@ -138,90 +142,30 @@ class ReportDraftNotifier extends StateNotifier<ReportDraftState> {
       analysisError: null,
     );
 
+    /* 
+    // AI Analysis disabled for C3 integration (Endpoint not supported)
     try {
       // Call real LLM service
       final llmResult = await LLMService.analyzeIncident(state.description);
+      // ... (code omitted)
+    } 
+    */
 
-      // Map severity string to Severity enum
-      Severity severity;
-      switch (llmResult.severity.toLowerCase()) {
-        case 'low':
-          severity = Severity.low;
-          break;
-        case 'high':
-          severity = Severity.high;
-          break;
-        default:
-          severity = Severity.medium;
-      }
-
-      // Map category to icon
-      IconData icon;
-      switch (llmResult.category) {
-        case 'Roads & Infra':
-          icon = Icons.add_road;
-          break;
-        case 'Safety & Emergency':
-          icon = Icons.warning_amber_rounded;
-          break;
-        case 'Sanitation':
-          icon = Icons.delete;
-          break;
-        case 'Traffic':
-          icon = Icons.traffic;
-          break;
-        case 'Utilities':
-          icon = Icons.electrical_services;
-          break;
-        default:
-          icon = Icons.campaign;
-      }
-
-      // Create AnalysisResult from LLM response
-      final analysis = AnalysisResult(
-        category: llmResult.category,
-        severity: severity,
-        icon: icon,
-        urgencyLabel: llmResult.urgency,
-        detectedCity: llmResult.detectedCity,
-      );
-
-      // Determine final city
-      String finalCity = state.city;
-      bool cityDetected = false;
-      if (llmResult.detectedCity != null) {
-        finalCity = llmResult.detectedCity!;
-        cityDetected = true;
-      }
-
-      // Default address if none set
-      String finalAddress = state.address ?? 'Detected location in $finalCity';
-
-      state = state.copyWith(
-        aiAnalysis: analysis,
-        category: analysis.category,
-        severity: analysis.severity,
-        city: finalCity,
-        isCityDetected: cityDetected,
-        address: finalAddress,
-        isAnalyzing: false,
-        detectedLanguage: llmResult.language,
-        confidence: llmResult.confidence,
-        analysisError: null,
-      );
-    } on LLMException catch (e) {
-      // LLM-specific error
-      state = state.copyWith(
-        isAnalyzing: false,
-        analysisError: e.message,
-      );
-    } catch (e) {
-      // General error
-      state = state.copyWith(
-        isAnalyzing: false,
-        analysisError: 'Hindi ma-analyze ang ulat. Subukan muli.',
-      );
-    }
+    // IMMEDIATE FALLBACK: Skip analysis
+    state = state.copyWith(
+      isAnalyzing: false,
+      analysisError: null,
+      category: state.category ?? 'General',
+      severity: state.severity ?? Severity.medium,
+      city: state.city.isEmpty ? 'Unknown' : state.city,
+      aiAnalysis: AnalysisResult(
+        category: state.category ?? 'General',
+        severity: state.severity ?? Severity.medium,
+        icon: Icons.info_outline,
+        urgencyLabel: 'Normal',
+        detectedCity: state.city.isNotEmpty ? state.city : null,
+      ),
+    );
   }
 
 
@@ -270,12 +214,12 @@ class ReportDraftNotifier extends StateNotifier<ReportDraftState> {
       'address': state.address,
       'latitude': state.latitude,
       'longitude': state.longitude,
-      'mediaUrls': state.mediaUrls,
-      'mediaTypes': state.mediaTypes,
-      'reporterLatitude': state.reporterLatitude,
-      'reporterLongitude': state.reporterLongitude,
-      'reporterAddress': state.reporterAddress,
-      'locationVerified': state.locationVerified,
+      'media_urls': state.mediaUrls,      // Changed to snake_case
+      'media_types': state.mediaTypes,    // Changed to snake_case
+      'reporter_latitude': state.reporterLatitude,   // Changed to snake_case
+      'reporter_longitude': state.reporterLongitude, // Changed to snake_case
+      'reporter_address': state.reporterAddress,     // Changed to snake_case
+      'location_verified': state.locationVerified,   // Changed to snake_case
     };
 
     print('Case data: $caseData');

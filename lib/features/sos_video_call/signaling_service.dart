@@ -1,85 +1,192 @@
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:flutter/material.dart';
+import 'package:konektizen/core/router/router.dart'; // For rootNavigatorKey
+import 'package:konektizen/features/sos_video_call/command_center_call_screen.dart';
 
 class SignalingService {
+  // Singleton Pattern
+  static final SignalingService instance = SignalingService._internal();
+  factory SignalingService() => instance;
+  SignalingService._internal();
+
   IO.Socket? socket;
-  Function(dynamic)? onLocalStream;
-  Function(dynamic)? onRemoteStream;
-  Function(dynamic)? onJoined;
   Function(dynamic)? onOffer;
   Function(dynamic)? onAnswer;
   Function(dynamic)? onIceCandidate;
+  Function(bool)? onCameraToggle;
   Function()? onEndCall;
-  // Function(dynamic)? onConferenceStart; // Removed Jitsi legacy
 
-  // Flask server IP for WiFi connection
-  final String _serverUrl = 'http://172.16.0.101:5000';
+  // C3 Command Center IP
+  final String _serverUrl = 'http://172.16.0.140:5001';
 
-  void connect(String callId, String token, String role) {
-    // Disconnect any existing socket first
-    if (socket != null) {
-      print('[Signaling] Disposing existing socket before reconnecting');
-      socket!.disconnect();
-      socket!.dispose();
-      socket = null;
+  // Global listener for incoming calls from Command Center
+  void listenForIncomingCall(String userId) {
+    print('[Signaling] ========== SETTING UP INCOMING CALL LISTENER ==========');
+    print('[Signaling] User ID: $userId');
+    
+    if (socket != null && socket!.connected) {
+       print('[Signaling] Socket already connected, re-joining room');
+       socket!.emit('join_reporter', {'reporter_id': userId});
+       return;
     }
+
+    // Connect
+    print('[Signaling] Creating new socket connection...');
+    connectToSocket(); 
     
-    print('[Signaling] ========================================');
-    print('[Signaling] Creating new socket connection');
-    print('[Signaling] Server URL: $_serverUrl');
-    print('[Signaling] CallID: $callId');
-    print('[Signaling] Role: $role');
-    print('[Signaling] ========================================');
-    
-    socket = IO.io(_serverUrl, <String, dynamic>{
-      'transports': ['websocket'],
-      'autoConnect': false,
-      'forceNew': true, // Force new connection
+    // C3 Spec: Manual connect (autoConnect is false)
+    socket!.connect();
+    print('[Signaling] Socket connect() called');
+
+    // Wait for connection then join room
+    socket!.onConnect((_) {
+      print('[Signaling] ========================================');
+      print('[Signaling] ✅ SOCKET CONNECTED SUCCESSFULLY');
+      print('[Signaling] Server: $_serverUrl');
+      print('[Signaling] Socket ID: ${socket!.id}');
+      print('[Signaling] ========================================');
+      print('[Signaling] Emitting join_reporter with reporter_id: $userId');
+      socket!.emit('join_reporter', {'reporter_id': userId});
+      print('[Signaling] join_reporter emitted successfully');
     });
 
-    socket!.connect();
+    socket!.onDisconnect((_) {
+      print('[Signaling] ⚠️ SOCKET DISCONNECTED');
+      print('[Signaling] Attempting to reconnect...');
+      // Auto-reconnect after 1 second
+      Future.delayed(const Duration(seconds: 1), () {
+        if (socket != null && !socket!.connected) {
+          print('[Signaling] Reconnecting socket...');
+          socket!.connect();
+        }
+      });
+    });
+
+    // Listen for ALL events for debugging
+    socket!.onAny((event, data) {
+      print('[Signaling] 📨 RECEIVED EVENT: $event');
+      print('[Signaling] 📦 EVENT DATA: $data');
+    });
+
+    // C3 Spec: Listen for call_accepted (from accept_sos flow)
+    socket!.on('call_accepted', (data) {
+      print('[Signaling] 🔔 ========== CALL ACCEPTED RECEIVED ==========');
+      print('[Signaling] Call Data: $data');
+      
+      // Extract callId and operatorName from C3 payload
+      // Payload: { callId: "sos_<sosId>", operatorName: "Command Center", sosId, room: "sos_<sosId>" }
+      final callId = data['callId']?.toString() ?? data['call_id']?.toString() ?? "incoming";
+      final room = data['room']?.toString() ?? callId;
+      final operatorName = data['operatorName']?.toString() ?? "C3 Command Center";
+      
+      print('[Signaling] Parsed callId: $callId');
+      print('[Signaling] Parsed room: $room');
+      print('[Signaling] Parsed operatorName: $operatorName');
+      
+      // CRITICAL: Immediately emit join-call to join WebRTC room
+      print('[Signaling] ========================================');
+      print('[Signaling] Emitting join-call to room: $room');
+      socket!.emit('join-call', {
+        'callId': room,  // Use room (sos_<sosId>) as callId
+        'role': 'citizen'
+      });
+      print('[Signaling] join-call emitted successfully');
+      print('[Signaling] ========================================');
+      
+      // Use Global Navigation Key to push the Call Screen
+      if (rootNavigatorKey.currentState != null) {
+         print('[Signaling] ✅ Navigator available, pushing call screen');
+         rootNavigatorKey.currentState!.push(
+           MaterialPageRoute(
+             builder: (_) => CommandCenterCallScreen(
+               callId: room,  // Pass room as callId
+               operatorName: operatorName,
+             ),
+           ),
+         );
+      } else {
+         print('[Signaling] ❌ ERROR: Navigator State is null, cannot open call screen');
+      }
+    });
+  }
+
+  void connectToSocket() {
+      // Disconnect any existing socket first
+    if (socket != null) {
+      socket!.disconnect();
+      socket!.dispose();
+    }
+    
+    print('[Signaling] Connecting to C3 Socket: $_serverUrl');
+    
+    socket = IO.io(_serverUrl, <String, dynamic>{
+      'transports': ['polling'], // C3 Flask-SocketIO: polling-only
+      'upgrade': false, // CRITICAL: Prevent websocket upgrade
+      'autoConnect': false, // C3 Spec: Manual connect
+      'forceNew': true,
+    });
+    
+    // C3 Spec: Debug logs for connection events
+    socket!.onConnect((_) {
+      print('[Signaling] ========================================');
+      print('[Signaling] ✅ CONNECTED');
+      print('[Signaling] Socket ID: ${socket!.id}');
+      print('[Signaling] ========================================');
+    });
+    
+    socket!.onDisconnect((reason) {
+      print('[Signaling] ⚠️ DISCONNECTED');
+      print('[Signaling] Reason: $reason');
+    });
+    
+    socket!.onConnectError((error) {
+      print('[Signaling] ❌ CONNECT ERROR');
+      print('[Signaling] Error: $error');
+    });
+  }
+
+  // Legacy connect method (for accepting call logic inside CallScreen if needed)
+  void connect(String callId, String token, String role) {
+    // Re-use connection if possible, but usually Call Screen inits its own specific listeners?
+    // For now, let's keep it creating a connection if one doesn't exist, or re-using.
+    if (socket == null || !socket!.connected) {
+        connectToSocket();
+    }
 
     socket!.onConnect((_) {
-      print('[Signaling] ✓ Connected to Socket.IO server at $_serverUrl');
-      print('[Signaling] Socket ID: ${socket!.id}');
       print('[Signaling] Emitting join-call event...');
       socket!.emit('join-call', {
         'callId': callId,
         'token': token,
         'role': role
       });
-      print('[Signaling] join-call emitted for room: $callId');
     });
     
-    socket!.onConnectError((data) {
-      print('[Signaling] ✗ Connection error: $data');
-      print('[Signaling] Verify that $_serverUrl is reachable and adb reverse is running.');
-    });
-    
-    socket!.onError((data) {
-      print('[Signaling] Socket Error: $data');
-    });
-    
-    socket!.onDisconnect((_) {
-      print('[Signaling] ✗ Disconnected from Socket.IO server');
-    });
-
-    socket!.on('offer', (data) {
-      print('[Signaling] Received offer');
-      onOffer?.call(data);
-    });
-
-    socket!.on('answer', (data) {
-      print('[Signaling] Received answer');
-      onAnswer?.call(data);
-    });
-
-    socket!.on('ice-candidate', (data) {
-      print('[Signaling] Received ICE candidate');
-      onIceCandidate?.call(data);
+    // Unified signal listener (C3 spec)
+    socket!.on('signal', (data) {
+      print('[Signaling] Received signal: ${data['type']}');
+      final type = data['type'];
+      final payload = data['payload'];
+      
+      switch (type) {
+        case 'offer':
+          onOffer?.call(payload);
+          break;
+        case 'answer':
+          onAnswer?.call(payload);
+          break;
+        case 'ice':
+          onIceCandidate?.call(payload);
+          break;
+        case 'camera':
+          final enabled = payload['enabled'] ?? false;
+          onCameraToggle?.call(enabled);
+          break;
+      }
     });
 
-    socket!.on('end-call', (_) {
-      print('[Signaling] Received end-call');
+    socket!.on('call_ended', (_) {
+      print('[Signaling] Received call_ended');
       onEndCall?.call();
     });
     
@@ -93,7 +200,27 @@ class SignalingService {
     });
   }
 
+  // Unified signal sender (C3 spec)
+  void sendSignal({
+    required String to,
+    required int reporterId,
+    required String callId,
+    required String type,
+    required Map<String, dynamic> payload,
+  }) {
+    socket!.emit('signal', {
+      'to': to,
+      'reporter_id': reporterId,
+      'call_id': callId,
+      'type': type,
+      'payload': payload,
+    });
+    print('[Signaling] Sent signal: $type');
+  }
+  
+  // Legacy methods for backward compatibility
   void sendOffer(String room, dynamic sdp) {
+    // Note: This is legacy, prefer sendSignal
     socket!.emit('offer', {'room': room, 'sdp': sdp});
   }
 
@@ -106,8 +233,12 @@ class SignalingService {
   }
   
   void endCall(String room) {
-     socket!.emit('end-call', {'room': room});
-     dispose();
+     socket!.emit('call_ended', {'room': room});
+     // Do not dispose, keep listening for next call?
+     // For now, we dispose to be clean.
+     // dispose(); 
+     // BUT if we dispose, we lose the listener!
+     // So maybe just leave room?
   }
 
   void dispose() {

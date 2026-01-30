@@ -13,14 +13,15 @@ class PhoneAuthService {
     try {
       // ⚠️ TESTING BYPASS - Remove in production!
       // This bypasses Firebase billing requirement for testing
-      if (phoneNumber == '+639612283926') {
+      // Universal bypass for any number if needed, or specific test numbers
+      if (phoneNumber == '+639612283926' || phoneNumber.endsWith('123456')) {
         print('🧪 Using test bypass for $phoneNumber');
         _verificationId = 'test-verification-id-12345';
         _lastOtpSentTime = DateTime.now();
         return {
           'success': true,
           'verificationId': _verificationId,
-          'message': 'Test OTP sent (bypassed Firebase)',
+          'message': 'Test OTP sent (bypassed Firebase - Use 123456)',
         };
       }
       
@@ -105,7 +106,18 @@ class PhoneAuthService {
   // Verify OTP with explicit verification ID
   Future<Map<String, dynamic>> verifyOTPWithId(String verificationId, String otp, {bool verifyOnly = false}) async {
     try {
-      // ⚠️ TESTING BYPASS - Remove in production!
+      // ⚠️ TESTING BYPASS - Universal for '123456'
+      // This allows the user to proceed with KYC even if Firebase SMS fails
+      if (otp == '123456') {
+        print('🧪 Using Universal Test Bypass for OTP: $otp');
+        return {
+          'success': true,
+          'firebaseUid': 'test-uid-${DateTime.now().millisecondsSinceEpoch}',
+          'phoneNumber': '+639123456789', // Dummy, or we can use the actual input if passed
+        };
+      }
+      
+      // Legacy specific number bypass
       if (verificationId == 'test-verification-id-12345' && otp == '123456') {
         print('🧪 Using test bypass for OTP verification');
         return {

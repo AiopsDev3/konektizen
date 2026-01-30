@@ -37,7 +37,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       name,
       email, 
       password,
-      phoneNumber: null, // Phone number is now collected during verification
     );
     
     if (!mounted) return;
@@ -48,9 +47,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
         await AppDialogs.showSuccess(
           context,
           title: 'Registration Successful',
-          message: 'Your account has been created. Please log in.',
+          message: 'Your account has been created.',
         );
-        if (mounted) context.pop(); // Go back to login
+        if (mounted) {
+          // After successful registration, login and check verification
+          final loginResult = await apiService.login(email, password);
+          if (loginResult != null && mounted) {
+            _checkVerificationAndProceed(loginResult);
+          } else if (mounted) {
+            context.pop(); // Go back to login if auto-login fails
+          }
+        }
       }
     } else {
       if (mounted) {
@@ -130,9 +137,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('Verify Account'),
+        title: const Text('I-verify ang iyong account'),
         content: const Text(
-          'Help confirm your city or barangay so local officials can respond faster.\n\nThis helps us "Know Your Citizen".',
+          'Para magamit nang buo ang KONEKTIZEN',
         ),
         actions: [
           TextButton(
@@ -140,7 +147,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               Navigator.pop(context); 
               context.go('/home'); 
             },
-            child: const Text('LATER'),
+            child: const Text('\'Wag muna'),
           ),
           ElevatedButton(
             onPressed: () {
@@ -150,14 +157,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 if (mounted) context.push('/verify-id');
               });
             },
-            child: const Text('VERIFY NOW'),
+            child: const Text('Mag-verify ngayon'),
           ),
         ],
       ),
     );
   }
-
-
 
   @override
   Widget build(BuildContext context) {

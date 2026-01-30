@@ -93,9 +93,9 @@ class _PhoneProfileCompletionScreenState extends State<PhoneProfileCompletionScr
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('Verify Account'),
+        title: const Text('I-verify ang iyong account'),
         content: const Text(
-          'Help confirm your city or barangay so local officials can respond faster.\\n\\nThis helps us "Know Your Citizen".',
+          'Para magamit nang buo ang KONEKTIZEN',
         ),
         actions: [
           TextButton(
@@ -103,7 +103,7 @@ class _PhoneProfileCompletionScreenState extends State<PhoneProfileCompletionScr
               Navigator.pop(context);
               context.go('/home');
             },
-            child: const Text('LATER'),
+            child: const Text('\'Wag muna'),
           ),
           ElevatedButton(
             onPressed: () {
@@ -113,12 +113,13 @@ class _PhoneProfileCompletionScreenState extends State<PhoneProfileCompletionScr
                 if (mounted) context.push('/verify-id');
               });
             },
-            child: const Text('VERIFY NOW'),
+            child: const Text('Mag-verify ngayon'),
           ),
         ],
       ),
     );
   }
+
 
   @override
   Widget build(BuildContext context) {

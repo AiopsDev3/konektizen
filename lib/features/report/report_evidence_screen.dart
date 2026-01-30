@@ -321,6 +321,7 @@ class _ReportEvidenceScreenState extends ConsumerState<ReportEvidenceScreen> {
         ref.read(reportDraftProvider).copyWith(
           mediaUrls: urls,
           mediaTypes: successfulTypes,
+          localMediaPaths: _mediaFiles.map((f) => f.path).toList(),
         );
     }
     

@@ -7,23 +7,24 @@ async function main() {
 
   // 1. Find the admin user (or any user) to link these reports to
   // If no user exists, create a dummy one
-  let user = await prisma.user.findFirst({
+  let reporter = await prisma.reporter.findFirst({
     where: { email: 'admin@konektizen.com' }
   });
 
-  if (!user) {
+  if (!reporter) {
     console.log('⚠️ Admin user not found. Creating a temporary user for seeding...');
-    user = await prisma.user.create({
+    reporter = await prisma.reporter.create({
       data: {
         email: 'seeder@konektizen.com',
         password: 'password123',
         fullName: 'Seeder Bot',
-        role: 'CITIZEN'
+        role: 'CITIZEN',
+        phoneNumber: '09999999999' // unique constraint
       }
     });
   }
 
-  const userId = user.id;
+  const reporterId = reporter.id;
   const now = new Date();
 
   // 2. Define sample reports (mixed categories, severities, locations in Metro Manila)
@@ -39,7 +40,7 @@ async function main() {
       status: 'submitted',
       mediaUrls: '["https://placehold.co/600x400/orange/white?text=Fire"]', // Dummy image
       mediaTypes: '["image"]',
-      userId
+      reporterId
     },
     {
       category: 'Flood',
@@ -52,7 +53,7 @@ async function main() {
       status: 'submitted',
       mediaUrls: '["https://placehold.co/600x400/blue/white?text=Flood"]',
       mediaTypes: '["image"]',
-      userId
+      reporterId
     },
     {
       category: 'Waste',
@@ -65,7 +66,7 @@ async function main() {
       status: 'submitted',
       mediaUrls: '["https://placehold.co/600x400/brown/white?text=Garbage"]',
       mediaTypes: '["image"]',
-      userId
+      reporterId
     },
     {
       category: 'Traffic',
@@ -78,7 +79,7 @@ async function main() {
       status: 'submitted',
       mediaUrls: '["https://placehold.co/600x400/red/white?text=Traffic"]',
       mediaTypes: '["image"]',
-      userId
+      reporterId
     },
     {
       category: 'Infrastructure',
@@ -91,7 +92,7 @@ async function main() {
       status: 'submitted',
       mediaUrls: '',
       mediaTypes: '',
-      userId
+      reporterId
     },
     {
       category: 'Medical',
@@ -104,7 +105,7 @@ async function main() {
       status: 'submitted',
       mediaUrls: '["https://placehold.co/600x400/red/white?text=Accident"]',
       mediaTypes: '["image"]',
-      userId
+      reporterId
     },
     {
       category: 'Noise',
@@ -120,7 +121,7 @@ async function main() {
       resolutionNote: 'Police visited the area.',
       mediaUrls: '',
       mediaTypes: '',
-      userId
+      reporterId
     },
     {
       category: 'Animal Control',
@@ -133,7 +134,7 @@ async function main() {
       status: 'submitted',
       mediaUrls: '',
       mediaTypes: '',
-      userId
+      reporterId
     },
     {
       category: 'Theft',
@@ -146,7 +147,7 @@ async function main() {
       status: 'submitted',
       mediaUrls: '',
       mediaTypes: '',
-      userId
+      reporterId
     },
     {
       category: 'Fire',
@@ -159,7 +160,7 @@ async function main() {
       status: 'submitted',
       mediaUrls: '["https://placehold.co/600x400/orange/white?text=Fire2"]',
       mediaTypes: '["image"]',
-      userId
+      reporterId
     }
   ];
 

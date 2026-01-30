@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 async function deleteAdminAccounts() {
   try {
     // Find admin users first
-    const adminUsers = await prisma.user.findMany({
+    const adminReporters = await prisma.reporter.findMany({
       where: {
         OR: [
           { email: { contains: 'admin' } },
@@ -14,20 +14,20 @@ async function deleteAdminAccounts() {
       },
     });
 
-    const adminIds = adminUsers.map(u => u.id);
+    const adminIds = adminReporters.map(u => u.id);
     console.log(`Found ${adminIds.length} admin account(s) to delete`);
 
     // Delete related data first
     await prisma.report.deleteMany({
-      where: { userId: { in: adminIds } },
+      where: { reporterId: { in: adminIds } },
     });
 
-    await prisma.sOSAlert.deleteMany({
-      where: { userId: { in: adminIds } },
+    await prisma.reporterSosEvent.deleteMany({
+      where: { reporterId: { in: adminIds } },
     });
 
     // Now delete the users
-    const result = await prisma.user.deleteMany({
+    const result = await prisma.reporter.deleteMany({
       where: { id: { in: adminIds } },
     });
 

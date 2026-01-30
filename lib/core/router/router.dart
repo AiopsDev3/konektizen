@@ -21,13 +21,38 @@ import 'package:konektizen/features/auth/otp_verification_screen.dart';
 import 'package:konektizen/features/auth/phone_profile_completion_screen.dart';
 import 'package:konektizen/features/sos/sos_confirmation_screen.dart';
 import 'package:konektizen/features/profile/edit_profile_screen.dart';
+import 'package:konektizen/core/api/api_service.dart';
 
-final _rootNavigatorKey = GlobalKey<NavigatorState>();
+final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _sectionNavigatorKey = GlobalKey<NavigatorState>();
 
 final router = GoRouter(
-  navigatorKey: _rootNavigatorKey,
+  navigatorKey: rootNavigatorKey,
   initialLocation: '/',
+  redirect: (context, state) async {
+    // Check if user has a valid token
+    final token = await apiService.getToken();
+    final isLoggedIn = token != null && token.isNotEmpty;
+    
+    // Get current location
+    final isOnAuthPage = state.matchedLocation == '/' || 
+                         state.matchedLocation.startsWith('/auth');
+    
+    // If logged in and on auth page, redirect to home
+    if (isLoggedIn && isOnAuthPage) {
+      print('[Router] User logged in, redirecting to /home');
+      return '/home';
+    }
+    
+    // If not logged in and trying to access protected pages, redirect to onboarding
+    if (!isLoggedIn && !isOnAuthPage) {
+      print('[Router] User not logged in, redirecting to /');
+      return '/';
+    }
+    
+    // No redirect needed
+    return null;
+  },
   routes: [
     GoRoute(
       path: '/',
@@ -87,7 +112,7 @@ final router = GoRouter(
               routes: [
                 GoRoute(
                   path: 'city-updates',
-                  parentNavigatorKey: _rootNavigatorKey,
+                  parentNavigatorKey: rootNavigatorKey,
                    builder: (context, state) => const CityUpdatesScreen(),
                 ),
               ],
@@ -103,7 +128,7 @@ final router = GoRouter(
               routes: [
                 GoRoute(
                   path: 'detail/:id',
-                  parentNavigatorKey: _rootNavigatorKey, // Hide bottom nav on detail
+                  parentNavigatorKey: rootNavigatorKey, // Hide bottom nav on detail
                   builder: (context, state) {
                     final id = state.pathParameters['id'] ?? '';
                     return CaseDetailScreen(caseId: id);
@@ -122,7 +147,7 @@ final router = GoRouter(
               routes: [
                 GoRoute(
                   path: 'edit',
-                  parentNavigatorKey: _rootNavigatorKey,
+                  parentNavigatorKey: rootNavigatorKey,
                   builder: (context, state) => const EditProfileScreen(),
                 ),
               ],
@@ -134,13 +159,13 @@ final router = GoRouter(
     // SOS Full Screen Route
     GoRoute(
       path: '/sos',
-      parentNavigatorKey: _rootNavigatorKey,
+      parentNavigatorKey: rootNavigatorKey,
       builder: (context, state) => const SOSConfirmationScreen(),
     ),
     // Moved Report to top-level route (triggered from Home Grid)
     GoRoute(
       path: '/report',
-      parentNavigatorKey: _rootNavigatorKey, // Full screen, no bottom nav
+      parentNavigatorKey: rootNavigatorKey, // Full screen, no bottom nav
       builder: (context, state) {
         final startQuery = state.uri.queryParameters['query'];
         final category = state.uri.queryParameters['category'];
@@ -173,7 +198,7 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/verify-id',
-      parentNavigatorKey: _rootNavigatorKey,
+      parentNavigatorKey: rootNavigatorKey,
       builder: (context, state) => const ResidencyVerificationScreen(),
     ),
   ],

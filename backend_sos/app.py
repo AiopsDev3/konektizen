@@ -76,12 +76,32 @@ def get_latest_call():
         "expiresAt": active_calls[latest_call_id]['expiresAt']
     })
 
+@app.route('/api/internal/broadcast-sos', methods=['POST'])
+def broadcast_sos():
+    data = request.json
+    # Expected payload: reporter_id, latitude, longitude, message, timestamp
+    
+    print(f"[Flask] Received SOS Broadcast Request: {data}")
+    
+    # Broadcast to all ("c3_ops" room or global)
+    # Using global broadcast for simplicity as per C3 Agent
+    socketio.emit('konektizen_sos', data)
+    
+    return jsonify({"status": "broadcasted"})
+
 @app.route('/responder')
 def responder_page():
     """Serve the responder HTML page"""
     return send_file('responder.html')
 
 # --- Socket.IO Events ---
+
+@socketio.on('join-c3')
+def on_join_c3(data):
+    """Allow C3 to identify itself (optional, but good practice)"""
+    room = "c3_ops"
+    join_room(room)
+    print(f"[Flask] C3 Operator joined room {room}")
 
 @socketio.on('join-call')
 def on_join(data):
@@ -117,9 +137,6 @@ def on_join(data):
             emit('error', {'message': 'Invalid token'})
             return
             
-    # If role is responder, currently we allow open access or check responderToken if passed
-    # For MVP as per req, "allow join only if call exists" (plus minimal auth)
-    
     join_room(call_id)
     emit('user-joined', {'role': role}, to=call_id)
     print(f"[Flask] SUCCESS: {role} joined room {call_id}")
@@ -155,4 +172,5 @@ def on_disconnect():
     print(f"[Flask] Client disconnected - SID: {request.sid}")
 
 if __name__ == '__main__':
+    # Listen on all aliases
     socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)

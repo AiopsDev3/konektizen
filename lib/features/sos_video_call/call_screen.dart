@@ -32,10 +32,11 @@ class _CallScreenState extends State<CallScreen> {
   
   bool _inCall = false;
   bool _micOn = true;
-  bool _cameraOn = true;
+  bool _cameraOn = false; // C3 Spec: Start with camera off
   bool _hasError = false;
   String _errorMessage = '';
   bool _isPiPMode = false;
+  int? _reporterId; // For C3 signaling
 
   @override
   void initState() {
@@ -84,13 +85,14 @@ class _CallScreenState extends State<CallScreen> {
       await _rtcManager.init();
       print('[CallScreen] RTC manager initialized');
       
-      // Setup Media
-      print('[CallScreen] Getting user media...');
-      final localStream = await _rtcManager.getUserMedia();
+      // Setup Media - C3 Spec: Start with audio-only
+      print('[CallScreen] Getting user media (audio-only)...');
+      final localStream = await _rtcManager.getUserMediaAudioOnly();
       setState(() {
         _localRenderer.srcObject = localStream;
+        _cameraOn = false;
       });
-      print('[CallScreen] Local stream set');
+      print('[CallScreen] Local audio stream set (video can be enabled later)');
 
       // Setup Signaling
       _signaling.onOffer = (data) async {
@@ -263,12 +265,43 @@ class _CallScreenState extends State<CallScreen> {
     });
   }
 
-  void _toggleCamera() {
-    final videoTracks = _localRenderer.srcObject?.getVideoTracks();
-    if (videoTracks != null && videoTracks.isNotEmpty) {
-      final enabled = !_cameraOn;
-      videoTracks[0].enabled = enabled;
-      setState(() => _cameraOn = enabled);
+  // C3 Spec: Toggle camera on/off with renegotiation
+  void _toggleCamera() async {
+    final newState = !_cameraOn;
+    
+    try {
+      await _rtcManager.toggleCameraEnabled(
+        enabled: newState,
+        onOfferCreated: (offer) {
+          // Send camera toggle signal to C3
+          if (_reporterId != null) {
+            _signaling.sendSignal(
+              to: 'c3',
+              reporterId: _reporterId!,
+              callId: widget.callId,
+              type: 'camera',
+              payload: {'enabled': newState},
+            );
+            
+            // Send new offer for renegotiation
+            _signaling.sendSignal(
+              to: 'c3',
+              reporterId: _reporterId!,
+              callId: widget.callId,
+              type: 'offer',
+              payload: {
+                'type': offer.type,
+                'sdp': offer.sdp,
+              },
+            );
+          }
+        },
+      );
+      
+      setState(() => _cameraOn = newState);
+      print('[CallScreen] Camera toggled: $newState');
+    } catch (e) {
+      print('[CallScreen] Error toggling camera: $e');
     }
   }
 

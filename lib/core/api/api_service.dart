@@ -28,7 +28,7 @@ class ApiService {
   // Login method - with timeout and error handling
   Future<Map<String, dynamic>?> login(String email, String password) async {
     try {
-      final url = Uri.parse('$baseUrl/auth/login');
+      final url = Uri.parse('$baseUrl/reporters/login');
       print('Attempting login to: $url');
       final response = await http.post(
         url,
@@ -42,8 +42,18 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        await saveToken(data['token']);
-        return data;
+        print('[ApiService] Login Success Data: $data'); // DEBUG LOG
+        
+        String? token = data['token'] ?? data['accessToken'] ?? data['data']?['token'];
+        
+        if (token != null) {
+           print('[ApiService] Saving Token: $token');
+           await saveToken(token);
+           return data;
+        } else {
+           print('[ApiService] ERROR: No token found in login response!');
+           return null;
+        }
       }
       return null;
     } catch (e) {
@@ -55,7 +65,7 @@ class ApiService {
   // Register method - with timeout and error handling
   Future<Map<String, dynamic>> register(String fullName, String email, String password, {String? phoneNumber}) async {
     try {
-      final url = Uri.parse('$baseUrl/auth/register');
+      final url = Uri.parse('$baseUrl/reporters/register');
       print('Attempting register to: $url');
       final response = await http.post(
         url,
@@ -64,16 +74,17 @@ class ApiService {
           'Bypass-Tunnel-Reminder': 'true',
         },
         body: jsonEncode({
-          'fullName': fullName,
+          'full_name': fullName, // C3 backend requires snake_case
           'email': email, 
           'password': password,
-          if (phoneNumber != null) 'phoneNumber': phoneNumber,
+          'phone_number': phoneNumber ?? '', // C3 backend requires this field
         }),
       ).timeout(const Duration(seconds: 30));
       print('Register Response Status: ${response.statusCode}');
       print('Register Response Body: ${response.body}');
 
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        // C3 backend may return 201 (Created) for successful registration
         return {'success': true};
       } else {
         // Try to parse error message from response
@@ -81,7 +92,7 @@ class ApiService {
           final errorData = jsonDecode(response.body);
           return {
             'success': false,
-            'error': errorData['error'] ?? 'Registration failed. Please try again.',
+            'error': errorData['error'] ?? errorData['message'] ?? 'Registration failed. Please try again.',
           };
         } catch (e) {
           print('JSON Decode Error: $e');
@@ -182,7 +193,7 @@ class ApiService {
     if (token == null) return null;
 
     try {
-      final url = Uri.parse('$baseUrl/auth/me');
+      final url = Uri.parse('$baseUrl/reporters/me');
       print('Fetching current user from: $url');
       final response = await http.get(
         url,
@@ -371,7 +382,7 @@ class ApiService {
 
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/cases'),
+        Uri.parse('$baseUrl/reporters/reports'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -380,7 +391,15 @@ class ApiService {
       );
 
       if (response.statusCode == 200) {
-         return jsonDecode(response.body) as List<dynamic>;
+         final dynamic decoded = jsonDecode(response.body);
+         if (decoded is List) {
+           return decoded;
+         } else if (decoded is Map && decoded.containsKey('data')) {
+           return decoded['data'] as List<dynamic>;
+         } else if (decoded is Map && decoded.containsKey('reports')) {
+            return decoded['reports'] as List<dynamic>;
+         }
+         return [];
       }
       return [];
     } catch (e) {
@@ -397,21 +416,22 @@ class ApiService {
     }
 
     try {
-      print('Submitting case to: $baseUrl/cases');
-      print('Case data: $caseData');
+      final jsonBody = jsonEncode(caseData);
+      print('Sending POST /api/reporters/reports');
+      print('Payload: $jsonBody');
       
       final response = await http.post(
-        Uri.parse('$baseUrl/cases'),
+        Uri.parse('$baseUrl/reporters/reports'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
           'Bypass-Tunnel-Reminder': 'true',
         },
-        body: jsonEncode(caseData),
+        body: jsonBody,
       ).timeout(
-        const Duration(seconds: 15),
+        const Duration(seconds: 10),
         onTimeout: () {
-          print('Submit Case Timeout: Request took too long');
+          print('Submit Case Timeout: Request took too long (10s)');
           throw Exception('Request timeout - server not responding');
         },
       );
@@ -431,7 +451,7 @@ class ApiService {
 
     try {
       final response = await http.patch(
-        Uri.parse('$baseUrl/cases/$caseId'),
+        Uri.parse('$baseUrl/reporters/reports/$caseId'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
