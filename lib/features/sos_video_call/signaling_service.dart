@@ -1,4 +1,8 @@
-import 'package:konektizen/core/config/environment.dart'; // Import EnvironmentConfig
+import 'package:flutter/material.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:konektizen/core/config/environment.dart';
+import 'package:konektizen/core/router/router.dart';
+import 'package:konektizen/features/sos_video_call/command_center_call_screen.dart';
 
 class SignalingService {
   // Singleton Pattern
@@ -16,48 +20,16 @@ class SignalingService {
   // C3 Command Center IP
   final String _serverUrl = EnvironmentConfig.signalingUrl;
 
+  String? _userId;
+
   // Global listener for incoming calls from Command Center
   void listenForIncomingCall(String userId) {
     print('[Signaling] ========== SETTING UP INCOMING CALL LISTENER ==========');
     print('[Signaling] User ID: $userId');
+    _userId = userId;
     
-    if (socket != null && socket!.connected) {
-       print('[Signaling] Socket already connected, re-joining room');
-       socket!.emit('join_reporter', {'reporter_id': userId});
-       return;
-    }
-
-    // Connect
-    print('[Signaling] Creating new socket connection...');
+    // Connect (or reconnect if ID changed)
     connectToSocket(); 
-    
-    // C3 Spec: Manual connect (autoConnect is false)
-    socket!.connect();
-    print('[Signaling] Socket connect() called');
-
-    // Wait for connection then join room
-    socket!.onConnect((_) {
-      print('[Signaling] ========================================');
-      print('[Signaling] ✅ SOCKET CONNECTED SUCCESSFULLY');
-      print('[Signaling] Server: $_serverUrl');
-      print('[Signaling] Socket ID: ${socket!.id}');
-      print('[Signaling] ========================================');
-      print('[Signaling] Emitting join_reporter with reporter_id: $userId');
-      socket!.emit('join_reporter', {'reporter_id': userId});
-      print('[Signaling] join_reporter emitted successfully');
-    });
-
-    socket!.onDisconnect((_) {
-      print('[Signaling] ⚠️ SOCKET DISCONNECTED');
-      print('[Signaling] Attempting to reconnect...');
-      // Auto-reconnect after 1 second
-      Future.delayed(const Duration(seconds: 1), () {
-        if (socket != null && !socket!.connected) {
-          print('[Signaling] Reconnecting socket...');
-          socket!.connect();
-        }
-      });
-    });
 
     // Listen for ALL events for debugging
     socket!.onAny((event, data) {
@@ -71,38 +43,29 @@ class SignalingService {
       print('[Signaling] Call Data: $data');
       
       // Extract callId and operatorName from C3 payload
-      // Payload: { callId: "sos_<sosId>", operatorName: "Command Center", sosId, room: "sos_<sosId>" }
       final callId = data['callId']?.toString() ?? data['call_id']?.toString() ?? "incoming";
       final room = data['room']?.toString() ?? callId;
       final operatorName = data['operatorName']?.toString() ?? "C3 Command Center";
       
       print('[Signaling] Parsed callId: $callId');
       print('[Signaling] Parsed room: $room');
-      print('[Signaling] Parsed operatorName: $operatorName');
       
       // CRITICAL: Immediately emit join-call to join WebRTC room
-      print('[Signaling] ========================================');
       print('[Signaling] Emitting join-call to room: $room');
       socket!.emit('join-call', {
-        'callId': room,  // Use room (sos_<sosId>) as callId
+        'callId': room,  
         'role': 'citizen'
       });
-      print('[Signaling] join-call emitted successfully');
-      print('[Signaling] ========================================');
       
-      // Use Global Navigation Key to push the Call Screen
       if (rootNavigatorKey.currentState != null) {
-         print('[Signaling] ✅ Navigator available, pushing call screen');
          rootNavigatorKey.currentState!.push(
            MaterialPageRoute(
              builder: (_) => CommandCenterCallScreen(
-               callId: room,  // Pass room as callId
+               callId: room,  
                operatorName: operatorName,
              ),
            ),
          );
-      } else {
-         print('[Signaling] ❌ ERROR: Navigator State is null, cannot open call screen');
       }
     });
   }
@@ -110,24 +73,31 @@ class SignalingService {
   void connectToSocket() {
       // Disconnect any existing socket first
     if (socket != null) {
-      socket!.disconnect();
       socket!.dispose();
+      socket = null;
     }
     
     print('[Signaling] Connecting to C3 Socket: $_serverUrl');
     
+    // MIMIC RESPONDER APP CONFIG EXACTLY
     socket = IO.io(_serverUrl, <String, dynamic>{
-      'transports': ['polling'], // C3 Flask-SocketIO: polling-only
-      'upgrade': false, // CRITICAL: Prevent websocket upgrade
-      'autoConnect': false, // C3 Spec: Manual connect
+      'transports': ['websocket', 'polling'], 
+      'autoConnect': true,
+      'reconnection': true,
+      'timeout': 10000,
       'forceNew': true,
     });
     
-    // C3 Spec: Debug logs for connection events
     socket!.onConnect((_) {
       print('[Signaling] ========================================');
       print('[Signaling] ✅ CONNECTED');
       print('[Signaling] Socket ID: ${socket!.id}');
+      
+      // ALIGNMENT: Emit join_reporter immediately on connect/reconnect
+      if (_userId != null) {
+        print('[Signaling] Auto-joining reporter room: reporter_$_userId');
+        socket!.emit('join_reporter', {'reporter_id': _userId});
+      }
       print('[Signaling] ========================================');
     });
     

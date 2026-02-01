@@ -64,16 +64,46 @@ class SOSService {
   }
 
   // Helper for Video Call (Flask)
-  Future<Map<String, dynamic>?> startVideoCall() async {
+  Future<Map<String, dynamic>?> startVideoCall({
+    required double latitude,
+    required double longitude, 
+    required String hotlineNumber,
+  }) async {
+    final token = await apiService.getToken();
+    if (token == null) return null;
+
     try {
+      final user = await apiService.getCurrentUser();
+      
       // Connect to C3 Command Center Web (Socket/Video)
       final url = Uri.parse('${ApiService.baseUrl}/sos/video/start');
       print('[SOS Service] ========================================');
       print('[SOS Service] Starting video call...');
       print('[SOS Service] URL: $url');
+      
+      final body = {
+        'latitude': latitude,
+        'longitude': longitude,
+        'hotlineNumber': hotlineNumber, // lowercase per prompt intent
+        'timestamp': DateTime.now().toIso8601String(),
+        'platform': 'android',
+        if (user != null) ...{
+           'userId': user['_id'] ?? user['id'],
+           'userName': user['fullName'] ?? user['name'] ?? 'Unknown',
+        }
+      };
+      
+      print('[SOS Service] Payload: $body');
       print('[SOS Service] ========================================');
       
-      final response = await http.post(url).timeout(const Duration(seconds: 10));
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 15));
       
       print('[SOS Service] Response status: ${response.statusCode}');
       print('[SOS Service] Response body: ${response.body}');
@@ -81,9 +111,6 @@ class SOSService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         print('[SOS Service] ✓ Video call session created successfully');
-        print('[SOS Service] Call ID: ${data['callId']}');
-        print('[SOS Service] Citizen Token: ${data['citizenToken']}');
-        print('[SOS Service] Expires At: ${data['expiresAt']}');
         return data;
       }
       print('[SOS Service] ✗ ERROR: Non-200 response');

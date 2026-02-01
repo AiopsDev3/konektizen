@@ -20,9 +20,10 @@ class CommandCenterCallScreen extends StatefulWidget {
 
 class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
   // --- WebRTC State ---
+  final _localRenderer = RTCVideoRenderer();
+  final _remoteRenderer = RTCVideoRenderer();
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
-  MediaStream? _remoteStream; // For audio playback (even if no video)
   bool _isConnecting = true;
 
   // --- Timer State ---
@@ -31,19 +32,28 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
   
   // --- Controls State ---
   bool _isMicMuted = false;
-  bool _isSpeakerOn = true; // Use Helper to toggle
-  bool _isVideoOn = false; 
+  bool _isSpeakerOn = true; 
+  bool _isVideoOn = true; // Default to VIDEO ON for SOS
+  bool _isFrontCamera = true;
 
   @override
   void initState() {
     super.initState();
+    _initRenderers();
     _startTimer();
     _initializeWebRTC();
+  }
+
+  Future<void> _initRenderers() async {
+    await _localRenderer.initialize();
+    await _remoteRenderer.initialize();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _localRenderer.dispose();
+    _remoteRenderer.dispose();
     _disposeWebRTC();
     super.dispose();
   }
@@ -51,58 +61,68 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
   // --- WebRTC Logic ---
   Future<void> _initializeWebRTC() async {
     print('[Call Screen] Initializing WebRTC...');
+    
+    // 1. Setup Signaling Listeners IMMEDIATELY (Critical for receiving offer)
+    _setupSignalingListeners();
+
     try {
-      // 1. Get User Media - C3 Spec: Audio-Only
+      // 2. Get User Media - Try Video First
       final mediaConstraints = {
         'audio': true,
-        'video': false // C3 spec: start with audio-only
+        'video': {
+          'facingMode': 'user',
+          'width': 1280,
+          'height': 720,
+        }
       };
       
-      _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-      print('[Call Screen] Local Stream acquired (audio-only)');
+      try {
+         _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+         print('[Call Screen] Local Stream acquired (video+audio)');
+      } catch (e) {
+         print('[Call Screen] Video failed, falling back to Audio only: $e');
+         // Fallback to audio only
+         _localStream = await navigator.mediaDevices.getUserMedia({'audio': true});
+      }
+      
+      _localRenderer.srcObject = _localStream;
 
       // 3. Create Peer Connection
       final configuration = {
         'iceServers': [
           {'urls': 'stun:stun.l.google.com:19302'},
-          // Add TURN servers here if needed for production
         ]
       };
       
       _peerConnection = await createPeerConnection(configuration);
       
-      // 4. Add Local Tracks to Peer Connection
+      // 4. Add Local Tracks
       _localStream!.getTracks().forEach((track) {
         _peerConnection!.addTrack(track, _localStream!);
       });
 
-      // 4. Handle ICE Candidates - C3 Spec: room-based event
+      // 4. Handle ICE Candidates
       _peerConnection!.onIceCandidate = (candidate) {
-        print('[Call Screen] Sending ICE Candidate');
         SignalingService.instance.socket?.emit('ice-candidate', {
-          'room': widget.callId,
+          'room': widget.callId, // use strict room based signaling
           'candidate': {
             'candidate': candidate.candidate,
             'sdpMid': candidate.sdpMid,
             'sdpMLineIndex': candidate.sdpMLineIndex,
           }
         });
-        print('[ICE] Sent to room: ${widget.callId}');
       };
 
-      // 5. Handle Remote Stream (Audio)
+      // 5. Handle Remote Stream
       _peerConnection!.onTrack = (event) {
-        print('[Call Screen] Remote Track Received');
+        print('[Call Screen] Remote Track Received: ${event.track.kind}');
         if (event.streams.isNotEmpty) {
            setState(() {
-             _remoteStream = event.streams[0];
+             _remoteRenderer.srcObject = event.streams[0];
              _isConnecting = false;
            });
         }
       };
-      
-      // 6. Setup Signaling Listeners
-      _setupSignalingListeners();
 
     } catch (e) {
       print('[Call Screen] WebRTC Init Error: $e');
@@ -116,28 +136,48 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
     final socket = SignalingService.instance.socket;
     if (socket == null) return;
 
-    print('[Call Screen] Setting up room-based signaling listeners');
-    print('[Call Screen] Room: ${widget.callId}');
-    print('[Call Screen] C3 is initiator - waiting for offer');
+    print('[Call Screen] [KONEKTIZEN_SOS] Listening for OFFER in room: ${widget.callId}');
 
-    // C3 Spec: Listen for OFFER (C3 is initiator)
+    // Remove old listeners to prevent duplication
+    socket.off('offer');
+    socket.off('ice-candidate');
+    socket.off('end-call');
+
+    // Listen for OFFER (C3 is initiator)
     socket.on('offer', (data) async {
-       print('[Signaling] 📨 Received OFFER from C3');
-       print('[Signaling] Offer data: $data');
+       print('[KONEKTIZEN_SOS] 📨 Received OFFER from C3');
+       if (data is! Map) {
+         print('[Call Screen] ❌ Offer data invalid: $data');
+         return;
+       }
        try {
-         // C3 sends: {room: 'sos_X', sdp: {type: 'offer', sdp: '...'}}
-         final sdpData = data['sdp'];
+         String sdp;
+         String type = 'offer';
+         
+         final rawSdp = data['sdp'];
+         if (rawSdp is Map) {
+           sdp = rawSdp['sdp'];
+           type = rawSdp['type'] ?? 'offer';
+         } else if (rawSdp is String) {
+           sdp = rawSdp;
+           // If backend sent {sdp: "...", type: "offer"} at top level
+           if (data['type'] != null) {
+              type = data['type'];
+           }
+         } else {
+           print('[Call Screen] ❌ SDP data unknown format: $rawSdp');
+           return;
+         }
+
          await _peerConnection!.setRemoteDescription(
-           RTCSessionDescription(sdpData['sdp'], sdpData['type'])
+           RTCSessionDescription(sdp, type)
          );
-         print('[Signaling] ✅ Remote description set');
          
          // Create Answer
          final answer = await _peerConnection!.createAnswer();
          await _peerConnection!.setLocalDescription(answer);
-         print('[Signaling] ✅ Local description (answer) set');
          
-         // Send Answer - C3 Spec: room-based event
+         // Send Answer
          socket.emit('answer', {
            'room': widget.callId,
            'sdp': {
@@ -145,7 +185,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
              'sdp': answer.sdp,
            }
          });
-         print('[Signaling] 📤 Sent ANSWER to room: ${widget.callId}');
+         print('[KONEKTIZEN_SOS] 📤 Sent ANSWER to room: ${widget.callId}');
        } catch (e) {
          print('[Call Screen] ❌ Handle Offer Error: $e');
        }
@@ -153,23 +193,26 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
     
     // Listen for ICE Candidates
     socket.on('ice-candidate', (data) {
-       print('[Signaling] 🧊 Received ICE Candidate');
-       if (_peerConnection != null) {
-          final candidateData = data['candidate'];
-          final candidate = RTCIceCandidate(
-            candidateData['candidate'],
-            candidateData['sdpMid'],
-            candidateData['sdpMLineIndex'],
-          );
-          _peerConnection!.addCandidate(candidate);
-          print('[Signaling] ✅ ICE candidate added');
+       if (_peerConnection != null && data is Map) {
+          try {
+            final candidateData = data['candidate'];
+            if (candidateData is Map) {
+               final candidate = RTCIceCandidate(
+                 candidateData['candidate'],
+                 candidateData['sdpMid'],
+                 candidateData['sdpMLineIndex'],
+               );
+               _peerConnection!.addCandidate(candidate);
+            }
+          } catch (e) {
+             print('[Call Screen] ❌ ICE Error: $e');
+          }
        }
     });
     
-    // Listen for End Call
-    socket.on('end-call', (_) {
-       print('[Call Screen] Remote Ended Call');
-       _handleEndCall();
+    socket.on('end-call', (data) {
+       print('[Call Screen] 🛑 Received end-call event: $data');
+       _onRemoteEndCall();
     });
   }
   
@@ -180,9 +223,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
 
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
-        setState(() => _secondsElapsed++);
-      }
+      if (mounted) setState(() => _secondsElapsed++);
     });
   }
 
@@ -192,13 +233,19 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
     return '${minutes.toString().padLeft(1, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 
-  void _handleEndCall() {
-    print('[Call Screen] Ending Call');
-    SignalingService.instance.socket?.emit('end-call');
-    // Dispose handled by dispose()
-    if (mounted && context.canPop()) {
-       context.pop();
+  void _onUserEndCall() {
+    print('[Call Screen] User Ending Call');
+    SignalingService.instance.socket?.emit('end-call', {'room': widget.callId});
+    if (mounted) {
+       context.go('/home');
     }
+  }
+
+  void _onRemoteEndCall() {
+     print('[Call Screen] Remote Ended Call');
+     if (mounted) {
+       context.go('/home');
+     }
   }
   
   void _toggleMic() {
@@ -211,6 +258,26 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
       }
     }
   }
+  
+  void _switchCamera() async {
+    if (_localStream != null) {
+      final videoTracks = _localStream!.getVideoTracks();
+      if (videoTracks.isNotEmpty) {
+        await Helper.switchCamera(videoTracks[0]);
+        setState(() => _isFrontCamera = !_isFrontCamera);
+      }
+    }
+  }
+
+  void _toggleVideo() {
+     setState(() => _isVideoOn = !_isVideoOn);
+     if (_localStream != null) {
+        final videoTracks = _localStream!.getVideoTracks();
+        if (videoTracks.isNotEmpty) {
+           videoTracks[0].enabled = _isVideoOn;
+        }
+     }
+  }
 
   void _toggleSpeaker() {
      setState(() => _isSpeakerOn = !_isSpeakerOn);
@@ -220,165 +287,147 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF0F4E68), Color(0xFF061821)],
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              // Top Bar
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                child: Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white),
-                      onPressed: () { 
-                         // Minimize (Pop) but keep call running? 
-                         // For now, simpler to just treat as back
-                         // context.pop(); 
-                      },
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          // 1. Remote Video (Full Screen)
+          Positioned.fill(
+            child: _remoteRenderer.srcObject != null
+                ? RTCVideoView(
+                    _remoteRenderer, 
+                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                  )
+                : Container(
+                    color: Colors.grey[900],
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const CircularProgressIndicator(color: Colors.white),
+                          const SizedBox(height: 16),
+                          Text(
+                            _isConnecting ? 'Waiting for video...' : 'Connected',
+                            style: const TextStyle(color: Colors.white),
+                          )
+                        ],
+                      ),
                     ),
-                  ],
+                  ),
+          ),
+          
+          // 2. Local Video (PIP)
+          Positioned(
+            right: 16,
+            top: 60,
+            child: Container(
+              width: 120,
+              height: 160,
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: RTCVideoView(
+                  _localRenderer,
+                  mirror: _isFrontCamera,
+                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                 ),
               ),
+            ),
+          ),
 
-              const Spacer(flex: 1),
+          // 3. User Info & Timer
+          Positioned(
+            top: 60,
+            left: 20,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.operatorName ?? 'Command Center',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                  ),
+                ),
+                Text(
+                  _formatDuration(_secondsElapsed),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                  ),
+                ),
+              ],
+            ),
+          ),
 
-              // Center Info
-              Column(
-                mainAxisSize: MainAxisSize.min,
+          // 4. Bottom Controls
+          Positioned(
+            bottom: 40,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.transparent, Colors.black87],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                )
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  Container(
-                    width: 100,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: _isConnecting ? Colors.orange : Colors.green,
-                        width: 3
-                      )
-                    ),
-                    child: Icon(
-                      Icons.support_agent,
-                      size: 50,
-                      color: _isConnecting ? Colors.orange : Colors.white,
-                    ),
+                  _buildControlButton(
+                    icon: _isVideoOn ? Icons.videocam : Icons.videocam_off,
+                    onPressed: _toggleVideo,
+                    isActive: _isVideoOn,
                   ),
-                  const SizedBox(height: 24),
-                  
-                  Text(
-                    widget.operatorName ?? 'C3 Command Center',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.5,
-                    ),
+                  _buildControlButton(
+                    icon: _isMicMuted ? Icons.mic_off : Icons.mic,
+                    onPressed: _toggleMic,
+                    isActive: !_isMicMuted,
                   ),
-                  const SizedBox(height: 8),
-                  
-                  Text(
-                    _isConnecting ? 'Connecting Audio...' : _formatDuration(_secondsElapsed),
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.7),
-                      fontSize: 16,
-                    ),
+                   FloatingActionButton(
+                    backgroundColor: Colors.red,
+                    onPressed: _onUserEndCall,
+                    child: const Icon(Icons.call_end, color: Colors.white),
+                  ),
+                  _buildControlButton(
+                    icon: _isSpeakerOn ? Icons.volume_up : Icons.phone_in_talk,
+                    onPressed: _toggleSpeaker,
+                    isActive: _isSpeakerOn,
+                  ),
+                  _buildControlButton(
+                    icon: Icons.flip_camera_ios,
+                    onPressed: _switchCamera,
+                    isActive: false, // plain style
                   ),
                 ],
               ),
-
-              const Spacer(flex: 2),
-
-              // Bottom Control Bar
-              Padding(
-                padding: const EdgeInsets.only(bottom: 48.0, left: 16, right: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    // 1. Video Toggle (Default Off)
-                    _buildControlButton(
-                      icon: _isVideoOn ? Icons.videocam : Icons.videocam_off,
-                      isActive: _isVideoOn,
-                      onPressed: () {
-                         setState(() => _isVideoOn = !_isVideoOn);
-                         // TODO: Enable/Disable video track
-                         if (_localStream != null) {
-                            _localStream!.getVideoTracks().forEach((track) {
-                              track.enabled = _isVideoOn;
-                            });
-                         }
-                      },
-                    ),
-
-                    // 2. Mic Toggle
-                    _buildControlButton(
-                      icon: _isMicMuted ? Icons.mic_off : Icons.mic,
-                      isActive: !_isMicMuted,
-                      onPressed: _toggleMic,
-                    ),
-
-                    // 3. Speaker Toggle
-                    _buildControlButton(
-                      icon: _isSpeakerOn ? Icons.volume_up : Icons.phone_in_talk,
-                      isActive: _isSpeakerOn,
-                      onPressed: _toggleSpeaker,
-                    ),
-
-                    // 4. End Call (Prominent)
-                    Container(
-                      height: 64,
-                      width: 80,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFEF4444), // Emergency Red
-                        borderRadius: BorderRadius.all(Radius.circular(32)),
-                      ),
-                      child: IconButton(
-                        icon: const Icon(Icons.call_end, color: Colors.white, size: 32),
-                        onPressed: _handleEndCall,
-                      ),
-                    ),
-                    
-                    // 5. Camera Switch (Only active if video is on, but shown in UI)
-                     _buildControlButton(
-                      icon: Icons.flip_camera_ios_outlined,
-                      isActive: false, 
-                      onPressed: () {
-                         if (_localStream != null) {
-                            Helper.switchCamera(_localStream!.getVideoTracks()[0]);
-                         }
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 
   Widget _buildControlButton({
     required IconData icon,
-    required bool isActive,
     required VoidCallback onPressed,
+    required bool isActive,
   }) {
     return Container(
-      width: 50,
-      height: 50,
       decoration: BoxDecoration(
-        color: isActive ? Colors.white.withOpacity(0.3) : Colors.white.withOpacity(0.1), 
+        color: isActive ? Colors.white.withOpacity(0.2) : Colors.white.withOpacity(0.1),
         shape: BoxShape.circle,
       ),
       child: IconButton(
-        icon: Icon(icon, color: Colors.white, size: 24),
+        icon: Icon(icon, color: Colors.white),
         onPressed: onPressed,
       ),
     );
