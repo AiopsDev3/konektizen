@@ -1,7 +1,4 @@
-import 'package:socket_io_client/socket_io_client.dart' as IO;
-import 'package:flutter/material.dart';
-import 'package:konektizen/core/router/router.dart'; // For rootNavigatorKey
-import 'package:konektizen/features/sos_video_call/command_center_call_screen.dart';
+import 'package:konektizen/core/config/environment.dart'; // Import EnvironmentConfig
 
 class SignalingService {
   // Singleton Pattern
@@ -17,7 +14,7 @@ class SignalingService {
   Function()? onEndCall;
 
   // C3 Command Center IP
-  final String _serverUrl = 'http://172.16.0.140:5001';
+  final String _serverUrl = EnvironmentConfig.signalingUrl;
 
   // Global listener for incoming calls from Command Center
   void listenForIncomingCall(String userId) {

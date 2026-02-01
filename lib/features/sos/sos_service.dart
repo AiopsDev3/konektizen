@@ -67,7 +67,7 @@ class SOSService {
   Future<Map<String, dynamic>?> startVideoCall() async {
     try {
       // Connect to C3 Command Center Web (Socket/Video)
-      final url = Uri.parse('http://172.16.0.140:5001/api/sos/video/start');
+      final url = Uri.parse('${ApiService.baseUrl}/sos/video/start');
       print('[SOS Service] ========================================');
       print('[SOS Service] Starting video call...');
       print('[SOS Service] URL: $url');

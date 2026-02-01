@@ -18,7 +18,15 @@ class EnvironmentConfig {
 
   /// Get the API base URL for the current environment
   // C3 Command Center Backend (handles ALL auth, SOS, and reports)
-  static const String apiBaseUrl = 'http://172.16.0.140:5001/api';
+  static const String apiBaseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://10.0.2.2:5001/api', // Default to Android Emulator
+  );
+
+  static const String signalingUrl = String.fromEnvironment(
+    'SIGNALING_URL',
+    defaultValue: 'http://10.0.2.2:5001',
+  );
 
   /// Request timeout duration
   static const Duration requestTimeout = Duration(seconds: 30);
