@@ -100,17 +100,28 @@ class WebRTCManager {
       
       // Store video track in local stream
       _localStream?.addTrack(videoTrack);
+
+      // Ensure transceiver direction is SendRecv
+      final transceivers = await _peerConnection!.getTransceivers();
+      for (var transceiver in transceivers) {
+         if (transceiver.sender.track?.kind == 'video' || transceiver.receiver.track?.kind == 'video') {
+            await transceiver.setDirection(TransceiverDirection.SendRecv);
+            break;
+         }
+      }
       
     } else {
       print('[WebRTC] Disabling camera...');
       
       // Find video sender and remove track
-      final senders = await _peerConnection!.getSenders();
-      for (var sender in senders) {
-        if (sender.track?.kind == 'video') {
-          await sender.replaceTrack(null);
-          print('[WebRTC] Removed video track');
-          break;
+      // Find video sender and remove track
+      final transceivers = await _peerConnection!.getTransceivers();
+      for (var transceiver in transceivers) {
+        if (transceiver.sender.track?.kind == 'video' || transceiver.receiver.track?.kind == 'video') {
+           await transceiver.sender.replaceTrack(null);
+           await transceiver.setDirection(TransceiverDirection.RecvOnly);
+           print('[WebRTC] Removed video track and set direction to RecvOnly');
+           break;
         }
       }
     }

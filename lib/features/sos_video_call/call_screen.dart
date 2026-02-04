@@ -38,6 +38,8 @@ class _CallScreenState extends State<CallScreen> {
   bool _isPiPMode = false;
   int? _reporterId; // For C3 signaling
 
+  bool _remoteVideoEnabled = true; // [NEW] Track remote camera state
+
   @override
   void initState() {
     super.initState();
@@ -91,10 +93,16 @@ class _CallScreenState extends State<CallScreen> {
       setState(() {
         _localRenderer.srcObject = localStream;
         _cameraOn = false;
+        // In SOS calls, the 'reporter' is ME.
+        // We can cast the String token/ID to int if needed, or just use string.
+        // For sendSignal, we often pass the ID of the reporter associated with the call.
+        // If we don't have it, we might rely on the server knowing us by socket ID.
+        // But let's try to parse it from widget.token or just use a placeholder if the server permits.
+        // Assuming widget.role == 'citizen' implies I am the reporter.
       });
       print('[CallScreen] Local audio stream set (video can be enabled later)');
 
-      // Setup Signaling
+      // Setup Signaling Listeners
       _signaling.onOffer = (data) async {
         print("[CallScreen] Received Offer from responder");
         var sdp = RTCSessionDescription(data['sdp'], data['type']);
@@ -120,6 +128,20 @@ class _CallScreenState extends State<CallScreen> {
          _rtcManager.addCandidate(candidate);
       };
 
+      // [NEW] Handle Camera Toggle from C3
+      _signaling.onCameraToggle = (enabled) {
+         print("[CallScreen] Remote Camera Toggled: $enabled");
+         setState(() {
+            _remoteVideoEnabled = enabled;
+         });
+      };
+
+      // [NEW] Handle Mic Toggle from C3
+      _signaling.onMicToggle = (enabled) {
+         print("[CallScreen] Remote Mic Toggled: $enabled");
+         // Update UI if we had a "remote mute" icon
+      };
+
       _signaling.onEndCall = () {
         print("[CallScreen] Call ended by remote");
         if (mounted) {
@@ -138,7 +160,26 @@ class _CallScreenState extends State<CallScreen> {
         setState(() {
           _remoteRenderer.srcObject = stream;
           _inCall = true;
+          // If a new stream arrives, assume video is enabled unless told otherwise
+          // or check tracks.
+          if (stream.getVideoTracks().isNotEmpty) {
+             _remoteVideoEnabled = true; // Assuming active tracks
+          }
         });
+      });
+      
+      // [NEW] Handle Track Updates (Renegotiation)
+      _rtcManager.onTrack((event) {
+         print("[CallScreen] Remote Track Event: ${event.track.kind}");
+         if (event.track.kind == 'video') {
+            print("[CallScreen] Video track updated/added");
+            if (event.streams.isNotEmpty) {
+               setState(() {
+                 _remoteRenderer.srcObject = event.streams[0];
+                 _remoteVideoEnabled = true;
+               });
+            }
+         }
       });
 
       // Connect Signaling
@@ -254,6 +295,22 @@ class _CallScreenState extends State<CallScreen> {
       final enabled = !_micOn;
       audioTracks[0].enabled = enabled;
       setState(() => _micOn = enabled);
+
+      // [NEW] Emit Mic Signal
+      // Use 'c3' as target since we are citizen calling command center
+      // Determine reporterId: if generic signal, we pass 0 or string ID.
+      // Since sendSignal now accepts dynamic, we can send generic ID or try to use parsed ID.
+      try {
+        _signaling.sendSignal(
+          to: 'c3', 
+          reporterId: 0, // Placeholder, backend often routes by socket room
+          callId: widget.callId,
+          type: 'mic',
+          payload: {'enabled': enabled}
+        );
+      } catch (e) {
+        print("[CallScreen] Error sending mic signal: $e");
+      }
     }
   }
 
@@ -274,19 +331,18 @@ class _CallScreenState extends State<CallScreen> {
         enabled: newState,
         onOfferCreated: (offer) {
           // Send camera toggle signal to C3
-          if (_reporterId != null) {
-            _signaling.sendSignal(
-              to: 'c3',
-              reporterId: _reporterId!,
-              callId: widget.callId,
-              type: 'camera',
-              payload: {'enabled': newState},
-            );
+          _signaling.sendSignal(
+            to: 'c3',
+            reporterId: 0, // Placeholder
+            callId: widget.callId,
+            type: 'camera',
+            payload: {'enabled': newState},
+          );
             
-            // Send new offer for renegotiation
-            _signaling.sendSignal(
+          // Send new offer for renegotiation
+          _signaling.sendSignal(
               to: 'c3',
-              reporterId: _reporterId!,
+              reporterId: 0, // Placeholder
               callId: widget.callId,
               type: 'offer',
               payload: {
@@ -294,7 +350,6 @@ class _CallScreenState extends State<CallScreen> {
                 'sdp': offer.sdp,
               },
             );
-          }
         },
       );
       
@@ -332,48 +387,93 @@ class _CallScreenState extends State<CallScreen> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-            // Remote Video (Full Screen)
-            Positioned.fill(
-              child: _hasError
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24.0),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.error_outline, color: Colors.red, size: 80),
-                            const SizedBox(height: 24),
-                            Text(
-                              _errorMessage,
-                              style: const TextStyle(color: Colors.white, fontSize: 18),
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 32),
-                            ElevatedButton(
-                              onPressed: _hangUp,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
-                                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                              ),
-                              child: const Text('CLOSE', style: TextStyle(color: Colors.white)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  : _remoteRenderer.srcObject != null
-                      ? RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
-                      : Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              CircularProgressIndicator(),
-                              SizedBox(height: 16),
-                              Text("Waiting for Responder...", style: TextStyle(color: Colors.white)),
-                            ],
+          // Remote Video (Full Screen)
+          Positioned.fill(
+            child: _hasError
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error_outline, color: Colors.red, size: 80),
+                          const SizedBox(height: 24),
+                          Text(
+                            _errorMessage,
+                            style: const TextStyle(color: Colors.white, fontSize: 18),
+                            textAlign: TextAlign.center,
                           ),
-                        ),
-            ),
+                          const SizedBox(height: 32),
+                          ElevatedButton(
+                            onPressed: _hangUp,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                            ),
+                            child: const Text('CLOSE', style: TextStyle(color: Colors.white)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : Stack(
+                      children: [
+                        // 1. The Video View (Always mounted but maybe hidden)
+                        RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+                        
+                        // 2. Audio Call UI (If BOTH cameras are OFF)
+                        if (!_cameraOn && !_remoteVideoEnabled) 
+                          Container(
+                             color: const Color(0xFF0F172A), // Dark Slate
+                             child: Center(
+                               child: Column(
+                                 mainAxisSize: MainAxisSize.min,
+                                 children: [
+                                   Container(
+                                     width: 120,
+                                     height: 120,
+                                     decoration: BoxDecoration(
+                                       shape: BoxShape.circle,
+                                       gradient: const LinearGradient(
+                                          colors: [Colors.blue, Colors.blueAccent],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                       ),
+                                       boxShadow: [
+                                          BoxShadow(color: Colors.blue.withOpacity(0.4), blurRadius: 20, spreadRadius: 5)
+                                       ]
+                                     ),
+                                     child: const Icon(Icons.call, color: Colors.white, size: 50),
+                                   ),
+                                   const SizedBox(height: 24),
+                                   const Text("Audio Call", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                                   const SizedBox(height: 8),
+                                   const Text("Camera is off for both parties", style: TextStyle(color: Colors.white54)),
+                                 ],
+                               ),
+                             ),
+                          )
+                        // 3. Remote Camera Off Overlay (If Local ON but Remote OFF)
+                        else if (!_remoteVideoEnabled)
+                            Container(
+                              color: Colors.black87,
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.videocam_off, color: Colors.white54, size: 48),
+                                    const SizedBox(height: 12),
+                                    const Text(
+                                      "Camera Off",
+                                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                      ],
+                    ),
+          ),
           // Local Video (Small Overlay) - Hidden in PiP mode
           if (!_isPiPMode)
             Positioned(

@@ -80,10 +80,10 @@ class CaseModel {
     final mediaTypesStr = json['mediaTypes'] as String? ?? '';
     
     return CaseModel(
-      id: json['id'],
+      id: json['id'].toString(),
       title: json['category'] ?? 'Report',
       location: json['city'] ?? 'Unknown',
-      date: DateTime.parse(json['createdAt']),
+      date: DateTime.tryParse(json['createdAt'] ?? json['created_at'] ?? json['timestamp'] ?? '') ?? DateTime.now(),
       status: _parseStatus(json['status']),
       category: json['category'] ?? 'General',
       description: json['description'] ?? '',

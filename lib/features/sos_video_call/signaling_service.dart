@@ -15,6 +15,7 @@ class SignalingService {
   Function(dynamic)? onAnswer;
   Function(dynamic)? onIceCandidate;
   Function(bool)? onCameraToggle;
+  Function(bool)? onMicToggle; // [NEW] Sync mute state
   Function()? onEndCall;
 
   // C3 Command Center IP
@@ -149,6 +150,11 @@ class SignalingService {
           final enabled = payload['enabled'] ?? false;
           onCameraToggle?.call(enabled);
           break;
+        case 'mic':
+          // payload.enabled means "mic is enabled" (not muted)
+          final enabled = payload['enabled'] ?? true;
+          onMicToggle?.call(enabled);
+          break;
       }
     });
 
@@ -170,7 +176,7 @@ class SignalingService {
   // Unified signal sender (C3 spec)
   void sendSignal({
     required String to,
-    required int reporterId,
+    required dynamic reporterId, // [CHANGED] Allow String or int
     required String callId,
     required String type,
     required Map<String, dynamic> payload,

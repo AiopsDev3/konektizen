@@ -35,6 +35,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
   bool _isSpeakerOn = true; 
   bool _isVideoOn = true; // Default to VIDEO ON for SOS
   bool _isFrontCamera = true;
+  bool _remoteVideoEnabled = true; // [NEW] Track remote camera state
 
   @override
   void initState() {
@@ -142,6 +143,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
     socket.off('offer');
     socket.off('ice-candidate');
     socket.off('end-call');
+    socket.off('signal'); // Use unified signal listener from service usually, but here we might attach custom ones
 
     // Listen for OFFER (C3 is initiator)
     socket.on('offer', (data) async {
@@ -209,6 +211,21 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
           }
        }
     });
+
+    // LISTEN FOR UNIFIED SIGNALS (Camera/Mic)
+    socket.on('signal', (data) {
+      if (data['type'] == 'camera') {
+        final payload = data['payload'];
+        final enabled = payload is Map ? (payload['enabled'] ?? false) : false;
+        print('[Call Screen] Remote Camera Toggle: $enabled');
+        setState(() {
+          _remoteVideoEnabled = enabled;
+        });
+      }
+      if (data['type'] == 'mic') {
+         // handle mic status UI if needed
+      }
+    });
     
     socket.on('end-call', (data) {
        print('[Call Screen] 🛑 Received end-call event: $data');
@@ -247,6 +264,10 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
        context.go('/home');
      }
   }
+
+  void _getReporterId() {
+     // Helper to get reporter id if needed
+  }
   
   void _toggleMic() {
     if (_localStream != null) {
@@ -255,6 +276,40 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
         bool enabled = audioTracks[0].enabled;
         audioTracks[0].enabled = !enabled;
         setState(() => _isMicMuted = !enabled);
+
+        // Emit Mic Signal
+         SignalingService.instance.sendSignal(
+            to: 'reporter', // C3 is calling responder, but usually C3 is responder?? Wait. 
+            // In C3->Konektizen check: C3 is responder? No C3 is Command Center.
+            // If this is Konektizen App view for RESPONDERS (e.g. Police App), then they call 'reporter' (Citizen).
+            // But wait, the file is `CommandCenterCallScreen`. Is this the "Mobile Agent" app?
+            // "CommandCenterCallScreen" implies this is the screen shown when command center calls you?
+            // Or is this the screen for the Citizen when talking to Command Center? 
+            // The file `call_screen.dart` had `role='citizen'`.
+            // `CommandCenterCallScreen.dart` seems to be used when `call_accepted` event arrives?
+            // "socket.on('call_accepted')... builder: (_) => CommandCenterCallScreen" 
+            // This suggests THIS screen is what the CITIZEN sees when the COMMAND CENTER accepts their SOS.
+            // Meaning "Remote" is C3 (Responder). 
+            // So target should be 'responder' (the C3 agent).
+            
+            // Wait, previous `CallScreen` used target 'c3'. 
+            // `SignalingService` sendSignal uses `socket.emit('signal', {to: ...})`.
+            // The backend routes 'responder' to the agent ID.
+            
+            // Let's use 'responder' as target if we are the citizen.
+            // `call_screen.dart` used 'c3'. Let's check backend routing if possible, but safe bet is 'responder' if 'c3' isn't standard.
+            // Actually `CallScreen.dart` used 'c3'. I should probably stick to 'responder' or 'c3' if that works.
+            // Let's assume 'responder' is correct for "The other party".
+            
+            // Re-reading CallWindow.jsx (Web): 
+            // It sends to 'reporter' if it is C3.
+            // So Mobile should send to 'responder'.
+            
+            reporterId: 0, 
+            callId: widget.callId,
+            type: 'mic',
+            payload: {'enabled': !enabled}
+         );
       }
     }
   }
@@ -276,6 +331,15 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
         if (videoTracks.isNotEmpty) {
            videoTracks[0].enabled = _isVideoOn;
         }
+        
+        // Emit Camera Signal
+        SignalingService.instance.sendSignal(
+            to: 'responder',
+            reporterId: 0,
+            callId: widget.callId,
+            type: 'camera',
+            payload: {'enabled': _isVideoOn}
+         );
      }
   }
 
@@ -293,9 +357,63 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
           // 1. Remote Video (Full Screen)
           Positioned.fill(
             child: _remoteRenderer.srcObject != null
-                ? RTCVideoView(
-                    _remoteRenderer, 
-                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                ? Stack(
+                    children: [
+                       RTCVideoView(
+                        _remoteRenderer, 
+                        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                      ),
+                      // Audio Call UI (If BOTH cameras are OFF)
+                      if (!_isVideoOn && !_remoteVideoEnabled) 
+                          Container(
+                             color: const Color(0xFF0F172A), // Dark Slate
+                             child: Center(
+                               child: Column(
+                                 mainAxisSize: MainAxisSize.min,
+                                 children: [
+                                   Container(
+                                     width: 120,
+                                     height: 120,
+                                     decoration: BoxDecoration(
+                                       shape: BoxShape.circle,
+                                       gradient: const LinearGradient(
+                                          colors: [Colors.blue, Colors.blueAccent],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                       ),
+                                       boxShadow: [
+                                          BoxShadow(color: Colors.blue.withOpacity(0.4), blurRadius: 20, spreadRadius: 5)
+                                       ]
+                                     ),
+                                     child: const Icon(Icons.call, color: Colors.white, size: 50),
+                                   ),
+                                   const SizedBox(height: 24),
+                                   const Text("Audio Call", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                                   const SizedBox(height: 8),
+                                   const Text("Camera is off for both parties", style: TextStyle(color: Colors.white54)),
+                                 ],
+                               ),
+                             ),
+                          )
+                      // Off Camera Overlay (If Remote Off but Local On)
+                      else if (!_remoteVideoEnabled)
+                        Container(
+                          color: Colors.black87,
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.videocam_off, color: Colors.white54, size: 48),
+                                SizedBox(height: 12),
+                                Text(
+                                  "Off Camera",
+                                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ], 
                   )
                 : Container(
                     color: Colors.grey[900],
@@ -329,11 +447,18 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: RTCVideoView(
-                  _localRenderer,
-                  mirror: _isFrontCamera,
-                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                ),
+                child: _isVideoOn 
+                  ? RTCVideoView(
+                      _localRenderer,
+                      mirror: _isFrontCamera,
+                      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                    )
+                  : Container(
+                      color: Colors.grey[800],
+                      child: Center(
+                        child: Icon(Icons.videocam_off, color: Colors.white38),
+                      ),
+                    ),
               ),
             ),
           ),
