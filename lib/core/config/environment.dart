@@ -1,3 +1,6 @@
+// AUTO-GENERATED from c3_config.yaml
+// DO NOT EDIT MANUALLY - Run: python generate_dart_config.py
+
 import 'package:flutter/foundation.dart';
 
 enum Environment { dev, staging, prod }
@@ -16,17 +19,11 @@ class EnvironmentConfig {
     return Environment.prod;
   }
 
-  /// Get the API base URL for the current environment
-  // C3 Command Center Backend (handles ALL auth, SOS, and reports)
-  static const String apiBaseUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'http://10.0.2.2:5001/api', // Default to Android Emulator
-  );
-
-  static const String signalingUrl = String.fromEnvironment(
-    'SIGNALING_URL',
-    defaultValue: 'http://10.0.2.2:5001',
-  );
+  /// API base URL (Generated from c3_config.yaml)
+  static const String apiBaseUrl = 'http://192.168.100.166:5001/api';
+  
+  /// Signaling URL (Generated from c3_config.yaml)
+  static const String signalingUrl = 'http://192.168.100.166:5001';
 
   /// Request timeout duration
   static const Duration requestTimeout = Duration(seconds: 30);
