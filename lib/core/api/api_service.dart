@@ -67,18 +67,21 @@ class ApiService {
     try {
       final url = Uri.parse('$baseUrl/reporters/register');
       print('Attempting register to: $url');
+      final trimmedPhone = phoneNumber?.trim();
+      final payload = {
+        'full_name': fullName, // C3 backend requires snake_case
+        'email': email,
+        'password': password,
+        if (trimmedPhone != null && trimmedPhone.isNotEmpty)
+          'phone_number': trimmedPhone,
+      };
       final response = await http.post(
         url,
         headers: {
           'Content-Type': 'application/json',
           'Bypass-Tunnel-Reminder': 'true',
         },
-        body: jsonEncode({
-          'full_name': fullName, // C3 backend requires snake_case
-          'email': email, 
-          'password': password,
-          'phone_number': phoneNumber ?? '', // C3 backend requires this field
-        }),
+        body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 30));
       print('Register Response Status: ${response.statusCode}');
       print('Register Response Body: ${response.body}');

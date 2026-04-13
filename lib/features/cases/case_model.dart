@@ -33,10 +33,17 @@ class CaseModel {
   final List<String> mediaUrls;
   final List<String> mediaTypes;
   
+  // Timeline
+  final DateTime? submittedAt;
+  final DateTime? validatedAt;
+  final DateTime? assignedAt;
+
   // Resolution (admin fields)
   final DateTime? resolvedAt;
   final String? resolutionNote;
   final String? resolvedBy;
+  final String? rawStatus;
+  final String? workflowStatus;
 
   const CaseModel({
     required this.id,
@@ -52,9 +59,14 @@ class CaseModel {
     this.address,
     this.mediaUrls = const [],
     this.mediaTypes = const [],
+    this.submittedAt,
+    this.validatedAt,
+    this.assignedAt,
     this.resolvedAt,
     this.resolutionNote,
     this.resolvedBy,
+    this.rawStatus,
+    this.workflowStatus,
   });
 
   Color get statusColor {
@@ -75,15 +87,18 @@ class CaseModel {
     }
   }
   factory CaseModel.fromJson(Map<String, dynamic> json) {
-    // Parse media arrays from comma-separated strings
-    final mediaUrlsStr = json['mediaUrls'] as String? ?? '';
-    final mediaTypesStr = json['mediaTypes'] as String? ?? '';
+    final timeline = json['timeline'] is Map<String, dynamic>
+        ? json['timeline'] as Map<String, dynamic>
+        : const <String, dynamic>{};
+    final createdAt = _parseDateTime(
+      json['createdAt'] ?? json['created_at'] ?? json['timestamp'],
+    );
     
     return CaseModel(
       id: json['id'].toString(),
       title: json['category'] ?? 'Report',
       location: json['city'] ?? 'Unknown',
-      date: DateTime.tryParse(json['createdAt'] ?? json['created_at'] ?? json['timestamp'] ?? '') ?? DateTime.now(),
+      date: createdAt ?? DateTime.now(),
       status: _parseStatus(json['status']),
       category: json['category'] ?? 'General',
       description: json['description'] ?? '',
@@ -91,21 +106,57 @@ class CaseModel {
       latitude: json['latitude'] != null ? (json['latitude'] as num).toDouble() : null,
       longitude: json['longitude'] != null ? (json['longitude'] as num).toDouble() : null,
       address: json['address'],
-      mediaUrls: mediaUrlsStr.isEmpty ? [] : mediaUrlsStr.split(','),
-      mediaTypes: mediaTypesStr.isEmpty ? [] : mediaTypesStr.split(','),
-      resolvedAt: json['resolvedAt'] != null ? DateTime.parse(json['resolvedAt']) : null,
+      mediaUrls: _parseStringList(json['mediaUrls'] ?? json['media_urls']),
+      mediaTypes: _parseStringList(json['mediaTypes'] ?? json['media_types']),
+      submittedAt: _parseDateTime(
+        timeline['submitted_at'] ?? json['submittedAt'] ?? json['submitted_at'],
+      ) ?? createdAt,
+      validatedAt: _parseDateTime(
+        timeline['validated_at'] ?? json['validatedAt'] ?? json['validated_at'],
+      ),
+      assignedAt: _parseDateTime(
+        timeline['assigned_at'] ?? json['assignedAt'] ?? json['assigned_at'],
+      ),
+      resolvedAt: _parseDateTime(
+        timeline['resolved_at'] ?? json['resolvedAt'] ?? json['resolved_at'],
+      ),
       resolutionNote: json['resolutionNote'],
       resolvedBy: json['resolvedBy'],
+      rawStatus: json['raw_status']?.toString(),
+      workflowStatus: json['workflow_status']?.toString(),
     );
   }
 
   static CaseStatus _parseStatus(String? status) {
     switch (status?.toLowerCase()) {
-      case 'submitted': return CaseStatus.submitted;
-      case 'validated': return CaseStatus.validated;
-      case 'in_progress': return CaseStatus.inProgress;
-      case 'resolved': return CaseStatus.resolved;
-      default: return CaseStatus.submitted;
+      case 'submitted':
+      case 'pending':
+      case 'new':
+        return CaseStatus.submitted;
+      case 'validated':
+      case 'verified':
+      case 'reviewed':
+        return CaseStatus.validated;
+      case 'in_progress':
+      case 'in progress':
+      case 'dispatched':
+      case 'assigned':
+      case 'acknowledged':
+      case 'en route':
+      case 'enroute':
+      case 'arrived':
+      case 'ongoing':
+      case 'pending verification':
+      case 'semi resolved':
+      case 'needs more proof':
+      case 'verification rejected':
+        return CaseStatus.inProgress;
+      case 'resolved':
+      case 'closed':
+      case 'completed':
+        return CaseStatus.resolved;
+      default:
+        return CaseStatus.submitted;
     }
   }
 
@@ -125,5 +176,28 @@ class CaseModel {
       'city': location != 'Unknown' ? location : null,
       'address': address,
     };
+  }
+
+  static DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+    return DateTime.tryParse(value.toString());
+  }
+
+  static List<String> _parseStringList(dynamic value) {
+    if (value == null) return const [];
+    if (value is List) {
+      return value
+          .where((item) => item != null)
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty)
+          .toList();
+    }
+    final text = value.toString().trim();
+    if (text.isEmpty) return const [];
+    return text
+        .split(',')
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
   }
 }

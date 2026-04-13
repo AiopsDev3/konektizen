@@ -81,6 +81,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1
   build_runner: ^2.4.8
   json_serializable: ^6.7.1
   freezed: ^2.4.7
@@ -133,3 +134,10 @@ dependency_overrides:
       url: https://github.com/maplibre/flutter-maplibre-gl.git
       ref: main
       path: maplibre_gl_web
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/Konektizen_Logo.png"
+  adaptive_icon_background: "#0E2A5A"
+  adaptive_icon_foreground: "assets/images/Konektizen_Logo.png"

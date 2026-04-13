@@ -27,6 +27,7 @@ class CaseDetailScreen extends ConsumerWidget {
         status: CaseStatus.submitted,
         category: 'Unknown',
         description: '',
+        submittedAt: DateTime.now(),
       ),
     );
 
@@ -58,7 +59,7 @@ class CaseDetailScreen extends ConsumerWidget {
         children: [
           CircleAvatar(
             radius: 32,
-            backgroundColor: item.statusColor.withOpacity(0.1),
+            backgroundColor: item.statusColor.withValues(alpha: 0.1),
             child: Icon(Icons.assignment, size: 32, color: item.statusColor),
           ),
           const SizedBox(height: 16),
@@ -91,12 +92,27 @@ class CaseDetailScreen extends ConsumerWidget {
   }
 
   Widget _buildTimeline(BuildContext context, CaseModel item) {
-    // Mock timeline steps
     final steps = [
-      {'label': 'Submitted', 'date': item.date, 'completed': true},
-      {'label': 'Validated', 'date': null, 'completed': item.status != CaseStatus.submitted},
-      {'label': 'Assigned', 'date': null, 'completed': item.status == CaseStatus.inProgress || item.status == CaseStatus.resolved},
-      {'label': 'Resolved', 'date': null, 'completed': item.status == CaseStatus.resolved},
+      {
+        'label': 'Submitted',
+        'date': item.submittedAt ?? item.date,
+        'completed': true,
+      },
+      {
+        'label': 'Validated',
+        'date': item.validatedAt,
+        'completed': item.validatedAt != null || item.status != CaseStatus.submitted,
+      },
+      {
+        'label': 'Assigned',
+        'date': item.assignedAt,
+        'completed': item.assignedAt != null || item.status == CaseStatus.inProgress || item.status == CaseStatus.resolved,
+      },
+      {
+        'label': 'Resolved',
+        'date': item.resolvedAt,
+        'completed': item.resolvedAt != null || item.status == CaseStatus.resolved,
+      },
     ];
 
     return Container(

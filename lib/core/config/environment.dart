@@ -1,8 +1,6 @@
 // AUTO-GENERATED from c3_config.yaml
 // DO NOT EDIT MANUALLY - Run: python generate_dart_config.py
 
-import 'package:flutter/foundation.dart';
-
 enum Environment { dev, staging, prod }
 
 class EnvironmentConfig {
@@ -20,10 +18,10 @@ class EnvironmentConfig {
   }
 
   /// API base URL (Generated from c3_config.yaml)
-  static const String apiBaseUrl = 'http://192.168.100.166:5001/api';
+  static const String apiBaseUrl = 'https://c3.aitelligenz.com/api';
   
   /// Signaling URL (Generated from c3_config.yaml)
-  static const String signalingUrl = 'http://192.168.100.166:5001';
+  static const String signalingUrl = 'https://c3.aitelligenz.com';
 
   /// Request timeout duration
   static const Duration requestTimeout = Duration(seconds: 30);
