@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:konektizen/core/services/location_service.dart';
 import 'package:konektizen/features/sos/sos_service.dart';
-import 'package:konektizen/features/sos_video_call/call_screen.dart';
-import 'package:konektizen/features/sos_video_call/command_center_call_screen.dart';
 import 'package:konektizen/features/sos_video_call/signaling_service.dart';
 import 'package:konektizen/core/api/api_service.dart'; // To get userId
 
@@ -17,39 +14,64 @@ class SOSConfirmationScreen extends StatefulWidget {
 
 class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
   bool _isProcessing = false;
+  String? _statusMessage;
   String? _hotlineNumber;
-  final SignalingService _signaling = SignalingService.instance; // Singleton ref
+  final SignalingService _signaling =
+      SignalingService.instance; // Singleton ref
 
   @override
   void initState() {
     super.initState();
     _fetchHotline();
+    _signaling.onCallDeclined = _handleCallDeclined;
     // OPTIMIZATION: Pre-connect to C3 Socket immediately so we are ready to receive calls instantly.
     _connectSocketEarly();
   }
 
+  @override
+  void dispose() {
+    if (_signaling.onCallDeclined == _handleCallDeclined) {
+      _signaling.onCallDeclined = null;
+    }
+    super.dispose();
+  }
+
+  void _handleCallDeclined(Map<String, dynamic> payload) {
+    if (!mounted) return;
+    final message =
+        payload['message']?.toString() ??
+        'C3 is busy right now. Please try again shortly.';
+    setState(() {
+      _isProcessing = false;
+      _statusMessage = message;
+    });
+  }
+
   Future<void> _connectSocketEarly() async {
     try {
-       final user = await apiService.getCurrentUser();
-       final userId = user?['_id'] ?? user?['id'];
-       if (userId != null) {
-          print('[SOS UI] Pre-connecting Socket for User: $userId');
-          _signaling.listenForIncomingCall(userId.toString());
-       }
+      final user = await apiService.getCurrentUser();
+      final userId = user?['_id'] ?? user?['id'];
+      if (userId != null) {
+        print('[SOS UI] Pre-connecting Socket for User: $userId');
+        _signaling.listenForIncomingCall(userId.toString());
+      }
     } catch (e) {
-       print('[SOS UI] Pre-connect error: $e');
+      print('[SOS UI] Pre-connect error: $e');
     }
   }
 
   Future<void> _fetchHotline() async {
     final number = await sosService.getHotlineNumber();
-    if(mounted) setState(() => _hotlineNumber = number);
+    if (mounted) setState(() => _hotlineNumber = number);
   }
 
   Future<void> _handleSOS() async {
     // strict debounce
-    if (_isProcessing) return; 
-    setState(() => _isProcessing = true);
+    if (_isProcessing) return;
+    setState(() {
+      _isProcessing = true;
+      _statusMessage = null;
+    });
 
     // 1. Get Location (Required)
     final location = await locationService.getCurrentLocation();
@@ -73,13 +95,13 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
     try {
       // Send SOS and wait for result
       final success = await sosService.sendSOS(
-        latitude: location.latitude, 
+        latitude: location.latitude,
         longitude: location.longitude,
         hotlineNumber: hotline,
       );
-      
+
       print('[SOS UI] SOS API Result: $success');
-      
+
       if (!success && mounted) {
         setState(() => _isProcessing = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -94,15 +116,16 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
       // SOS sent successfully - now wait for operator to accept
       // The call_accepted event listener is already set up in _connectSocketEarly()
       // When C3 accepts, the SignalingService will automatically open the call screen
-      print('[SOS UI] ✅ SOS sent successfully. Waiting for operator to accept...');
-
+      print(
+        '[SOS UI] ✅ SOS sent successfully. Waiting for operator to accept...',
+      );
     } catch (e) {
       print('[SOS UI] SOS API Error: $e');
       if (mounted) {
-         setState(() => _isProcessing = false);
-         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-         );
+        setState(() => _isProcessing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
       }
     }
   }
@@ -128,15 +151,23 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
                       color: Colors.black.withOpacity(0.2),
                       blurRadius: 20,
                       spreadRadius: 5,
-                    )
-                  ]
+                    ),
+                  ],
                 ),
-                child: const Icon(Icons.phone_in_talk, size: 60, color: Colors.red),
+                child: const Icon(
+                  Icons.phone_in_talk,
+                  size: 60,
+                  color: Colors.red,
+                ),
               ),
               const SizedBox(height: 48),
               const Text(
                 'EMERGENCY SOS',
-                style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 16),
               const Text(
@@ -145,20 +176,36 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
                 style: TextStyle(color: Colors.white, fontSize: 18),
               ),
               const Spacer(),
-                if (_isProcessing)
+              if (_isProcessing)
                 Column(
                   children: [
                     const CircularProgressIndicator(color: Colors.white),
                     const SizedBox(height: 16),
                     const Text(
                       'SOS Alert Sent!',
-                      style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     const Text(
                       'Waiting for operator to accept...',
                       style: TextStyle(color: Colors.white, fontSize: 16),
                     ),
+                    if (_statusMessage != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        _statusMessage!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     TextButton(
                       onPressed: () {
@@ -167,11 +214,19 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
                       },
                       style: TextButton.styleFrom(
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 32,
+                          vertical: 16,
+                        ),
                         side: const BorderSide(color: Colors.white, width: 2),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
-                      child: const Text('GO BACK', style: TextStyle(fontSize: 16)),
+                      child: const Text(
+                        'GO BACK',
+                        style: TextStyle(fontSize: 16),
+                      ),
                     ),
                   ],
                 )
@@ -185,11 +240,16 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
                         backgroundColor: Colors.white,
                         foregroundColor: Colors.red,
                         padding: const EdgeInsets.symmetric(vertical: 20),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       child: const Text(
                         'CALL NOW',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -199,8 +259,23 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
-                      child: const Text('CANCEL', style: TextStyle(fontSize: 16)),
+                      child: const Text(
+                        'CANCEL',
+                        style: TextStyle(fontSize: 16),
+                      ),
                     ),
+                    if (_statusMessage != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        _statusMessage!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               const SizedBox(height: 20),
