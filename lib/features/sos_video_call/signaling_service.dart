@@ -26,6 +26,7 @@ class SignalingService {
   final String _serverUrl = EnvironmentConfig.signalingUrl;
 
   String? _userId;
+  String? get currentReporterId => _userId;
 
   String _extractDeclineMessage(Map<String, dynamic> payload) {
     final explicit = payload['message']?.toString().trim();
@@ -266,6 +267,30 @@ class SignalingService {
     // dispose();
     // BUT if we dispose, we lose the listener!
     // So maybe just leave room?
+  }
+
+  void sendReporterLocation({
+    required String callId,
+    required double latitude,
+    required double longitude,
+    double? speed,
+    double? heading,
+    double? accuracy,
+  }) {
+    if (socket == null || !(socket!.connected)) {
+      return;
+    }
+
+    socket!.emit('reporter_location_update', {
+      'call_id': callId,
+      'reporter_id': _userId,
+      'latitude': latitude,
+      'longitude': longitude,
+      if (speed != null) 'speed': speed,
+      if (heading != null) 'heading': heading,
+      if (accuracy != null) 'accuracy': accuracy,
+      'updated': DateTime.now().toIso8601String(),
+    });
   }
 
   void dispose() {

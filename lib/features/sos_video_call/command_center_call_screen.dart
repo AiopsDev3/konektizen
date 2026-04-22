@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:konektizen/core/services/location_service.dart';
 import 'package:konektizen/features/sos_video_call/signaling_service.dart';
 
 class CommandCenterCallScreen extends StatefulWidget {
@@ -28,6 +30,8 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
 
   // --- Timer State ---
   Timer? _timer;
+  Timer? _locationHeartbeatTimer;
+  StreamSubscription<Position>? _locationSubscription;
   int _secondsElapsed = 0;
   
   // --- Controls State ---
@@ -36,6 +40,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
   bool _isVideoOn = true; // Default to VIDEO ON for SOS
   bool _isFrontCamera = true;
   bool _remoteVideoEnabled = true; // [NEW] Track remote camera state
+  bool _isLocationSharingActive = false;
 
   @override
   void initState() {
@@ -53,6 +58,8 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _locationHeartbeatTimer?.cancel();
+    _locationSubscription?.cancel();
     _localRenderer.dispose();
     _remoteRenderer.dispose();
     _disposeWebRTC();
@@ -122,6 +129,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
              _remoteRenderer.srcObject = event.streams[0];
              _isConnecting = false;
            });
+           _startLocationSharing();
         }
       };
 
@@ -238,6 +246,55 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
     _peerConnection?.close();
   }
 
+  Future<void> _sendCurrentLocation({bool force = false}) async {
+    if (!_isLocationSharingActive && !force) return;
+
+    try {
+      final position = await locationService.getCurrentLocation();
+      if (position == null) return;
+
+      SignalingService.instance.sendReporterLocation(
+        callId: widget.callId,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        speed: position.speed >= 0 ? position.speed * 3.6 : null,
+        heading: position.heading >= 0 ? position.heading : null,
+        accuracy: position.accuracy,
+      );
+    } catch (e) {
+      print('[Call Screen] Location send error: $e');
+    }
+  }
+
+  Future<void> _startLocationSharing() async {
+    if (_isLocationSharingActive) return;
+    _isLocationSharingActive = true;
+
+    await _sendCurrentLocation(force: true);
+
+    const locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 5,
+    );
+
+    _locationSubscription = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
+    ).listen((position) {
+      SignalingService.instance.sendReporterLocation(
+        callId: widget.callId,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        speed: position.speed >= 0 ? position.speed * 3.6 : null,
+        heading: position.heading >= 0 ? position.heading : null,
+        accuracy: position.accuracy,
+      );
+    });
+
+    _locationHeartbeatTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      _sendCurrentLocation(force: true);
+    });
+  }
+
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) setState(() => _secondsElapsed++);
@@ -252,6 +309,11 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
 
   void _onUserEndCall() {
     print('[Call Screen] User Ending Call');
+    _locationSubscription?.cancel();
+    _locationSubscription = null;
+    _locationHeartbeatTimer?.cancel();
+    _locationHeartbeatTimer = null;
+    _isLocationSharingActive = false;
     SignalingService.instance.socket?.emit('end-call', {'room': widget.callId});
     if (mounted) {
        context.go('/home');
@@ -260,15 +322,16 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
 
   void _onRemoteEndCall() {
      print('[Call Screen] Remote Ended Call');
+     _locationSubscription?.cancel();
+     _locationSubscription = null;
+     _locationHeartbeatTimer?.cancel();
+     _locationHeartbeatTimer = null;
+     _isLocationSharingActive = false;
      if (mounted) {
        context.go('/home');
      }
   }
 
-  void _getReporterId() {
-     // Helper to get reporter id if needed
-  }
-  
   void _toggleMic() {
     if (_localStream != null) {
       final audioTracks = _localStream!.getAudioTracks();
