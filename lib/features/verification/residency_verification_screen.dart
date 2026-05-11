@@ -43,7 +43,6 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
   // State
   bool _isUploading = false;
   bool _isAnalyzing = false;
-  bool _isPhoneVerified = false; // New state
   VerificationResult? _result;
   String? _errorMessage;
 
@@ -53,59 +52,7 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
     return RegExp(r'^(09|\+639)\d{9}$').hasMatch(phone);
   }
 
-  // OTP Verification Flow
-  Future<void> _startPhoneVerification() async {
-    final phone = _phoneCtrl.text.trim();
-    if (phone.isEmpty) return;
-
-    // 1. Format
-    String formattedPhone = phone;
-    if (formattedPhone.startsWith('0')) {
-      formattedPhone = '+63${formattedPhone.substring(1)}';
-    } else if (!formattedPhone.startsWith('+')) {
-      // Just in case, though regex handles it
-       formattedPhone = '+63$formattedPhone';
-    }
-
-    // Show loading
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (c) => const Center(child: CircularProgressIndicator()),
-    );
-
-    try {
-      // 2. Send OTP
-      final result = await phoneAuthService.sendOTP(formattedPhone);
-      
-      Navigator.pop(context); // Hide loading
-
-      if (result['success'] == true) {
-        final verificationId = result['verificationId']?.toString() ?? '';
-        if (verificationId.isEmpty) {
-          AppDialogs.showError(
-            context,
-            title: 'OTP Error',
-            message: result['error']?.toString() ??
-                'Unable to start phone verification. Please try again.',
-          );
-          return;
-        }
-        // 3. Show OTP Dialog
-        _showOTPInput(formattedPhone, verificationId);
-      } else {
-        AppDialogs.showError(
-          context,
-          title: 'Error',
-          message: result['error']?.toString() ?? 'Failed to send OTP.',
-        );
-      }
-    } catch (e) {
-      Navigator.pop(context); // Hide loading
-      AppDialogs.showError(context, title: 'Connection Error', message: 'Connection error: $e');
-    }
-  }
-
+  // ignore: unused_element
   void _showOTPInput(String phone, String verificationId) {
     final otpCtrl = TextEditingController();
     showDialog(
@@ -177,10 +124,7 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
                    }
 
                    if (successMessageSent) {
-                     setState(() {
-                       _isPhoneVerified = true;
-                       _currentStep = 1; // Proceed to next step
-                     });
+                     setState(() => _currentStep = 1);
                      ScaffoldMessenger.of(context).showSnackBar(
                        const SnackBar(content: Text('Phone verified successfully!')),
                      );
@@ -247,9 +191,7 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
       
       // AUTO-VERIFY if auth provider is PHONE (User Action A)
       // OR if backend already says validated
-      if (user.isPhoneAuth || user.phoneVerified) {
-         _isPhoneVerified = true;
-      }
+      // OTP is skipped for Konektizen verification; phone format is validated only.
     }
   }
 
@@ -346,12 +288,7 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
                  return;
               }
 
-              // 2. Check Verification
-              if (!_isPhoneVerified) {
-                 _startPhoneVerification(); // Triggers OTP flow
-                 return; // Do not proceed yet
-              }
-
+              // Phone OTP is intentionally skipped for Konektizen verification.
               setState(() => _currentStep = 1);
             }
           } else if (_currentStep == 1) {
@@ -464,27 +401,13 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
                    const SizedBox(height: 16),
                   TextFormField(
                      controller: _phoneCtrl,
-                     decoration: InputDecoration(
+                     decoration: const InputDecoration(
                        labelText: 'Phone Number', 
-                       border: const OutlineInputBorder(), 
+                       border: OutlineInputBorder(), 
                        hintText: '09XX XXX XXXX',
-                       suffixIcon: _isPhoneVerified 
-                         ? const Icon(Icons.check_circle, color: Colors.green)
-                         : null,
                      ),
                      keyboardType: TextInputType.phone,
                      validator: (v) => v!.isEmpty ? 'Required' : null,
-                     onChanged: (_) {
-                       // Only reset if NOT phone auth user (they can't change number easily anyway, or we should block it)
-                       // But requirement says "Phone number was already verified... treat it as already verified"
-                       // If they edit it, they unverify it.
-                       if (_isPhoneVerified) {
-                         setState(() => _isPhoneVerified = false);
-                       }
-                     },
-                     // Block editing if Phone Auth? "Auto-fill... treat as verified". 
-                     // Usually implies read-only, but let's just leave enabled but re-verify if changed.
-                     // Requirement: "Phone number... DO NOT send OTP again".
                    ),
                 ],
               ),
