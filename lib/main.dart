@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:konektizen/core/router/router.dart';
+import 'package:konektizen/features/auth/user_provider.dart';
 import 'package:konektizen/theme/app_theme.dart';
 
 void main() async {
@@ -19,8 +20,34 @@ void main() async {
   runApp(const ProviderScope(child: KonektizenApp()));
 }
 
-class KonektizenApp extends StatelessWidget {
+class KonektizenApp extends ConsumerStatefulWidget {
   const KonektizenApp({super.key});
+
+  @override
+  ConsumerState<KonektizenApp> createState() => _KonektizenAppState();
+}
+
+class _KonektizenAppState extends ConsumerState<KonektizenApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    Future.microtask(() => ref.read(userProvider.notifier).loadCurrentUser());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      Future.microtask(() => ref.read(userProvider.notifier).loadCurrentUser());
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

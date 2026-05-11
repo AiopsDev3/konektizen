@@ -74,6 +74,12 @@ class PhoneAuthService {
       await Future.delayed(const Duration(seconds: 3));
       
       if (completer.isEmpty) {
+        if (_verificationId == null || _verificationId!.isEmpty) {
+          return {
+            'success': false,
+            'error': 'OTP was not started. Please check the phone number and try again.',
+          };
+        }
         return {
           'success': true,
           'verificationId': _verificationId,

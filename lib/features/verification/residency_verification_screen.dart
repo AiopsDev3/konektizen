@@ -81,10 +81,24 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
       Navigator.pop(context); // Hide loading
 
       if (result['success'] == true) {
+        final verificationId = result['verificationId']?.toString() ?? '';
+        if (verificationId.isEmpty) {
+          AppDialogs.showError(
+            context,
+            title: 'OTP Error',
+            message: result['error']?.toString() ??
+                'Unable to start phone verification. Please try again.',
+          );
+          return;
+        }
         // 3. Show OTP Dialog
-        _showOTPInput(formattedPhone, result['verificationId']);
+        _showOTPInput(formattedPhone, verificationId);
       } else {
-        AppDialogs.showError(context, title: 'Error', message: result['error'] ?? 'Failed to send OTP.');
+        AppDialogs.showError(
+          context,
+          title: 'Error',
+          message: result['error']?.toString() ?? 'Failed to send OTP.',
+        );
       }
     } catch (e) {
       Navigator.pop(context); // Hide loading
@@ -150,7 +164,11 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
 
                 if (result['success'] == true) {
                    // 1. Call Backend to update DB state
-                   bool successMessageSent = await apiService.verifyPhone(result['phoneNumber']);
+                   final verifiedPhone =
+                       result['phoneNumber']?.toString().trim().isNotEmpty == true
+                           ? result['phoneNumber'].toString().trim()
+                           : phone;
+                   bool successMessageSent = await apiService.verifyPhone(verifiedPhone);
                    
                    // BYPASS: Keep going if using Test OTP, even if backend fails
                    if (!successMessageSent && otp == '123456') {
@@ -641,32 +659,37 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
   }
 
   Widget _buildResultView() {
-    final isSuccess = _result!.isVerified;
+    final isSubmitted = _result!.isVerified;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isSuccess ? Colors.green[50] : Colors.red[50],
+        color: isSubmitted ? Colors.orange[50] : Colors.red[50],
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: isSuccess ? Colors.green : Colors.red),
+        border: Border.all(color: isSubmitted ? Colors.orange : Colors.red),
       ),
       child: Column(
         children: [
           Icon(
-            isSuccess ? Icons.check_circle : Icons.error,
-            color: isSuccess ? Colors.green : Colors.red,
+            isSubmitted ? Icons.hourglass_top : Icons.error,
+            color: isSubmitted ? Colors.orange : Colors.red,
             size: 48,
           ),
           const SizedBox(height: 12),
           Text(
-            isSuccess ? 'Verification Successful!' : 'Verification Failed',
+            isSubmitted ? 'Submitted for C3 Approval' : 'Verification Failed',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: isSuccess ? Colors.green[800] : Colors.red[800],
+              color: isSubmitted ? Colors.orange[800] : Colors.red[800],
             ),
           ),
           const SizedBox(height: 8),
-          Text(_result!.reasoning, textAlign: TextAlign.center),
+          Text(
+            isSubmitted
+                ? 'Your documents passed the app check. C3/AIOPSYS still needs to approve your account before it becomes fully verified.'
+                : _result!.reasoning,
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 16),
           ElevatedButton(
             onPressed: () => context.go('/home'),

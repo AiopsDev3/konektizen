@@ -69,22 +69,37 @@ class UserNotifier extends StateNotifier<UserState> {
 
   /// Load current authenticated user from backend
   Future<void> loadCurrentUser() async {
+    final token = await apiService.getToken();
+    if (token == null || token.isEmpty) {
+      state = const UserState();
+      return;
+    }
+
     state = state.copyWith(isLoading: true, error: null);
 
     try {
       final userData = await apiService.getCurrentUser();
       
       if (userData != null) {
+        final rawStatus = (userData['verificationStatus'] ??
+                userData['verification_status'] ??
+                'UNVERIFIED')
+            .toString()
+            .toUpperCase();
+        final verified = userData['isVerified'] ??
+            userData['is_verified'] ??
+            rawStatus == 'APPROVED';
         state = UserState(
-          id: userData['id'],
-          fullName: userData['fullName'],
+          id: userData['id']?.toString(),
+          fullName: userData['fullName'] ?? userData['full_name'],
           email: userData['email'],
-          phoneNumber: userData['phoneNumber'],
-          role: userData['role'],
-          isVerified: userData['isVerified'] ?? false,
-          phoneVerified: userData['phoneVerified'] ?? false,
-          verificationStatus: userData['verificationStatus'] ?? 'UNVERIFIED',
-          authProvider: userData['authProvider'],
+          phoneNumber: userData['phoneNumber'] ?? userData['phone_number'],
+          role: userData['role'] ?? 'reporter',
+          isVerified: verified == true,
+          phoneVerified:
+              userData['phoneVerified'] ?? userData['phone_verified'] ?? false,
+          verificationStatus: rawStatus,
+          authProvider: userData['authProvider'] ?? userData['auth_provider'],
           isLoading: false,
         );
       } else {

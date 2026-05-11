@@ -18,10 +18,10 @@ class EnvironmentConfig {
   }
 
   /// API base URL (Generated from c3_config.yaml)
-  static const String apiBaseUrl = 'https://c3.aitelligenz.com/api';
+  static const String apiBaseUrl = 'http://montalban.c3.aitelligenz.com/api';
   
   /// Signaling URL (Generated from c3_config.yaml)
-  static const String signalingUrl = 'https://c3.aitelligenz.com';
+  static const String signalingUrl = 'http://montalban.c3.aitelligenz.com';
 
   /// Request timeout duration
   static const Duration requestTimeout = Duration(seconds: 30);
