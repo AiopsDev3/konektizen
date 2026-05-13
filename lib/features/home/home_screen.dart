@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:konektizen/theme/app_theme.dart';
 import 'package:konektizen/features/cases/cases_provider.dart';
 import 'package:konektizen/features/cases/case_model.dart';
-import 'package:konektizen/features/auth/user_provider.dart';
 import 'dart:async';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -23,17 +22,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     {
       'question': 'Ano ang nangyayari sa inyong lugar?',
       'hint': 'Ilarawan ang problema (hal., "May butas sa kalsada")',
-      'language': 'Tagalog'
+      'language': 'Tagalog',
     },
     {
       'question': 'Ano ang nagakalatabo sa inyo nga lugar?',
       'hint': 'Iladawan ang problema (hal., "May guba sa dalan")',
-      'language': 'Hiligaynon'
+      'language': 'Hiligaynon',
     },
     {
       'question': 'Unsa ang nahitabo sa inyong lugar?',
       'hint': 'Ihulagway ang problema (hal., "May lungag sa dalan")',
-      'language': 'Cebuano'
+      'language': 'Cebuano',
     },
   ];
 
@@ -45,61 +44,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _languageTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
       if (mounted) {
         setState(() {
-          _currentLanguageIndex = (_currentLanguageIndex + 1) % _languageTexts.length;
+          _currentLanguageIndex =
+              (_currentLanguageIndex + 1) % _languageTexts.length;
         });
       }
     });
-
-    // Check verification status
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkVerificationStatus();
-    });
-  }
-
-  void _checkVerificationStatus() {
-    final user = ref.read(userProvider);
-    if (!user.isAuthenticated) return;
-
-    // If not verified and not pending, prompt user
-    if ((user.isVerified == false) && user.verificationStatus != 'PENDING') {
-       _showVerificationDialog();
-    }
-  }
-
-  void _showVerificationDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false, 
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.verified_user_outlined, color: AppTheme.primary),
-            const SizedBox(width: 8),
-            const Text('Verify Account'),
-          ],
-        ),
-        content: const Text(
-          'Your account is not verified yet. Verify your identity to unlock all features and report incidents effectively.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context), 
-            child: const Text('Maybe Later', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              context.push('/verify-id');
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.primary,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Verify Now'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -110,19 +59,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Listen for authentication state changes to prompt for verification
-    ref.listen(userProvider, (previous, next) {
-      if (!next.isLoading && next.isAuthenticated) {
-        // If we just finished loading or just logged in
-        if (previous?.isLoading == true || previous?.isAuthenticated != true) {
-          // Use the captured context to show dialog
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _checkVerificationStatus();
-          });
-        }
-      }
-    });
-
     return Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
@@ -160,15 +96,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
               Text(
                 'Good Morning, Citizen', // Placeholder user name
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.grey[600],
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
               ),
             ],
           ),
           CircleAvatar(
             backgroundColor: AppTheme.secondary.withOpacity(0.1),
-            child: const Icon(Icons.notifications_none, color: AppTheme.secondary),
+            child: const Icon(
+              Icons.notifications_none,
+              color: AppTheme.secondary,
+            ),
           ),
         ],
       ),
@@ -177,7 +116,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildAIPrompt(BuildContext context) {
     final currentText = _languageTexts[_currentLanguageIndex];
-    
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       padding: const EdgeInsets.all(20.0),
@@ -268,13 +207,44 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget _buildQuickCategories(BuildContext context) {
     // UPDATED: Tagalog labels and replaced City Updates with "Mag-ulat" (Report)
     final categories = [
-      {'icon': Icons.delete_outline, 'label': 'Basura', 'category_key': 'BASURA', 'color': AppTheme.secondary}, 
-      {'icon': Icons.add_road, 'label': 'Kalsada', 'category_key': 'KALSADA', 'color': AppTheme.primary}, 
-      {'icon': Icons.water_drop_outlined, 'label': 'Pagbaha', 'category_key': 'PAGBAHA', 'color': Colors.blue},
-      {'icon': Icons.lightbulb_outline, 'label': 'Ilaw sa Kalye', 'category_key': 'ILAW_SA_KALYE', 'color': AppTheme.tertiary}, 
-      {'icon': Icons.traffic, 'label': 'Trapiko', 'category_key': 'TRAPIKO', 'color': Colors.red},
+      {
+        'icon': Icons.delete_outline,
+        'label': 'Basura',
+        'category_key': 'BASURA',
+        'color': AppTheme.secondary,
+      },
+      {
+        'icon': Icons.add_road,
+        'label': 'Kalsada',
+        'category_key': 'KALSADA',
+        'color': AppTheme.primary,
+      },
+      {
+        'icon': Icons.water_drop_outlined,
+        'label': 'Pagbaha',
+        'category_key': 'PAGBAHA',
+        'color': Colors.blue,
+      },
+      {
+        'icon': Icons.lightbulb_outline,
+        'label': 'Ilaw sa Kalye',
+        'category_key': 'ILAW_SA_KALYE',
+        'color': AppTheme.tertiary,
+      },
+      {
+        'icon': Icons.traffic,
+        'label': 'Trapiko',
+        'category_key': 'TRAPIKO',
+        'color': Colors.red,
+      },
       // New "Mag-ulat" tile instead of City Updates
-      {'icon': Icons.assignment_add, 'label': 'Mag-ulat', 'category_key': 'IBA_PA', 'color': Colors.purple, 'isReport': true},
+      {
+        'icon': Icons.assignment_add,
+        'label': 'Mag-ulat',
+        'category_key': 'IBA_PA',
+        'color': Colors.purple,
+        'isReport': true,
+      },
     ];
 
     return Padding(
@@ -284,9 +254,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         children: [
           Text(
             'Mabilis na Ulat', // Translated "Quick Report"
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
           GridView.builder(
@@ -303,13 +273,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               final item = categories[index];
               return InkWell(
                 onTap: () {
-                   if (item['isReport'] == true) {
-                     // Go to general report or category selection
-                     context.push('/report'); 
-                   } else {
-                     // Pass the specific category key
-                     context.push('/report?category=${item['category_key']}');
-                   }
+                  if (item['isReport'] == true) {
+                    // Go to general report or category selection
+                    context.push('/report');
+                  } else {
+                    // Pass the specific category key
+                    context.push('/report?category=${item['category_key']}');
+                  }
                 },
                 child: Container(
                   decoration: BoxDecoration(
@@ -330,8 +300,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
-                          item['icon'] as IconData, 
-                          color: item['color'] as Color
+                          item['icon'] as IconData,
+                          color: item['color'] as Color,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -360,7 +330,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: GestureDetector(
         onTap: () {
-           context.push('/home/city-updates');
+          context.push('/home/city-updates');
         },
         child: Container(
           width: double.infinity,
@@ -385,7 +355,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
-                  Icons.campaign, 
+                  Icons.campaign,
                   color: Colors.white,
                   size: 28,
                 ),
@@ -415,7 +385,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ],
                 ),
               ),
-              const Icon(Icons.arrow_forward_ios, color: Colors.white70, size: 16),
+              const Icon(
+                Icons.arrow_forward_ios,
+                color: Colors.white70,
+                size: 16,
+              ),
             ],
           ),
         ),
@@ -425,8 +399,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildActiveReports(BuildContext context) {
     final allCases = ref.watch(caseListProvider);
-    final activeCases = allCases.where((c) => c.status != CaseStatus.resolved).toList();
-    final recentCases = activeCases.take(3).toList(); // Show top 3 recent active ones
+    final activeCases = allCases
+        .where((c) => c.status != CaseStatus.resolved)
+        .toList();
+    final recentCases = activeCases
+        .take(3)
+        .toList(); // Show top 3 recent active ones
 
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -438,9 +416,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             children: [
               Text(
                 'Aktibong mga Report',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
               if (activeCases.isNotEmpty)
                 TextButton(
@@ -459,12 +437,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          
+
           if (recentCases.isEmpty)
             _buildEmptyState(context)
           else
             Column(
-              children: recentCases.map((item) => _buildCaseItem(context, item)).toList(),
+              children: recentCases
+                  .map((item) => _buildCaseItem(context, item))
+                  .toList(),
             ),
         ],
       ),
@@ -482,17 +462,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
       child: Column(
         children: [
-          Icon(Icons.assignment_turned_in_outlined, size: 48, color: Colors.grey[300]),
+          Icon(
+            Icons.assignment_turned_in_outlined,
+            size: 48,
+            color: Colors.grey[300],
+          ),
           const SizedBox(height: 12),
           Text(
             'Walang aktibong report',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.grey[500],
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: Colors.grey[500]),
           ),
           TextButton(
             onPressed: () {
-               StatefulNavigationShell.of(context).goBranch(2);
+              StatefulNavigationShell.of(context).goBranch(2);
             },
             child: const Text('Suriin ang History'),
           ),
@@ -511,7 +495,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
       child: ListTile(
         onTap: () {
-           context.push('/my-cases/detail/${item.id}');
+          context.push('/my-cases/detail/${item.id}');
         },
         leading: Container(
           padding: const EdgeInsets.all(8),
@@ -519,7 +503,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             color: AppTheme.primary.withOpacity(0.1),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: const Icon(Icons.description_outlined, color: AppTheme.primary),
+          child: const Icon(
+            Icons.description_outlined,
+            color: AppTheme.primary,
+          ),
         ),
         title: Text(
           item.category,
@@ -551,11 +538,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Color _getStatusColor(dynamic status) {
     switch (status) {
-      case CaseStatus.submitted: return Colors.blue;
-      case CaseStatus.validated: return Colors.orange;
-      case CaseStatus.inProgress: return Colors.purple;
-      case CaseStatus.resolved: return Colors.green;
-      default: return Colors.grey;
+      case CaseStatus.submitted:
+        return Colors.blue;
+      case CaseStatus.validated:
+        return Colors.orange;
+      case CaseStatus.inProgress:
+        return Colors.purple;
+      case CaseStatus.resolved:
+        return Colors.green;
+      default:
+        return Colors.grey;
     }
   }
 }

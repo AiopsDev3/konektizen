@@ -14,10 +14,12 @@ class PhoneProfileCompletionScreen extends StatefulWidget {
   });
 
   @override
-  State<PhoneProfileCompletionScreen> createState() => _PhoneProfileCompletionScreenState();
+  State<PhoneProfileCompletionScreen> createState() =>
+      _PhoneProfileCompletionScreenState();
 }
 
-class _PhoneProfileCompletionScreenState extends State<PhoneProfileCompletionScreen> {
+class _PhoneProfileCompletionScreenState
+    extends State<PhoneProfileCompletionScreen> {
   final _nameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
@@ -55,11 +57,8 @@ class _PhoneProfileCompletionScreenState extends State<PhoneProfileCompletionScr
       if (!mounted) return;
 
       if (result != null) {
-        // Token is already saved from registration step
-
-        
-        // Show "Know Your Citizen" verification prompt
-        _showVerificationPrompt();
+        // Token is already saved from registration step.
+        context.go('/home');
       } else {
         _showErrorDialog('Failed to complete profile. Please try again.');
         setState(() => _isLoading = false);
@@ -88,39 +87,6 @@ class _PhoneProfileCompletionScreenState extends State<PhoneProfileCompletionScr
     );
   }
 
-  void _showVerificationPrompt() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('I-verify ang iyong account'),
-        content: const Text(
-          'Para magamit nang buo ang KONEKTIZEN',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              context.go('/home');
-            },
-            child: const Text('\'Wag muna'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              context.go('/home');
-              Future.delayed(const Duration(milliseconds: 100), () {
-                if (mounted) context.push('/verify-id');
-              });
-            },
-            child: const Text('Mag-verify ngayon'),
-          ),
-        ],
-      ),
-    );
-  }
-
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -137,27 +103,17 @@ class _PhoneProfileCompletionScreenState extends State<PhoneProfileCompletionScr
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: 32),
-              const Icon(
-                Icons.person_add,
-                size: 80,
-                color: AppTheme.primary,
-              ),
+              const Icon(Icons.person_add, size: 80, color: AppTheme.primary),
               const SizedBox(height: 24),
               const Text(
                 'Welcome!',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
               Text(
                 'Logged in with ${widget.phoneNumber}',
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey,
-                ),
+                style: const TextStyle(fontSize: 14, color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
@@ -175,7 +131,10 @@ class _PhoneProfileCompletionScreenState extends State<PhoneProfileCompletionScr
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+                    borderSide: const BorderSide(
+                      color: AppTheme.primary,
+                      width: 2,
+                    ),
                   ),
                 ),
               ),
@@ -195,7 +154,10 @@ class _PhoneProfileCompletionScreenState extends State<PhoneProfileCompletionScr
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+                    borderSide: const BorderSide(
+                      color: AppTheme.primary,
+                      width: 2,
+                    ),
                   ),
                 ),
               ),
@@ -217,12 +179,17 @@ class _PhoneProfileCompletionScreenState extends State<PhoneProfileCompletionScr
                           width: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
                           ),
                         )
                       : const Text(
                           'Continue',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                 ),
               ),

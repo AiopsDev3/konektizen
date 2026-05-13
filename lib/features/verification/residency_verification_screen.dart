@@ -16,22 +16,25 @@ class ResidencyVerificationScreen extends ConsumerStatefulWidget {
   const ResidencyVerificationScreen({super.key});
 
   @override
-  ConsumerState<ResidencyVerificationScreen> createState() => _ResidencyVerificationScreenState();
+  ConsumerState<ResidencyVerificationScreen> createState() =>
+      _ResidencyVerificationScreenState();
 }
 
-class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificationScreen> {
+class _ResidencyVerificationScreenState
+    extends ConsumerState<ResidencyVerificationScreen> {
   int _currentStep = 0;
-  
+
   // Step 1 (New): Personal Information
   final _fullNameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _ageCtrl = TextEditingController();
   String? _selectedSex;
   DateTime? _selectedBirthday;
-  
+
   // Step 2: Address (Was Step 1)
-  final _cityCtrl = TextEditingController(); 
-  final _barangayCtrl = TextEditingController(); // We verify this matches selection
+  final _cityCtrl = TextEditingController();
+  final _barangayCtrl =
+      TextEditingController(); // We verify this matches selection
   final _addressDetailCtrl = TextEditingController();
   final _formKeyPInfo = GlobalKey<FormState>(); // Personal Info Form Key
   final _formKeyAddress = GlobalKey<FormState>(); // Address Form Key
@@ -39,7 +42,7 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
   // Step 3: Document (Was Step 2)
   File? _imageFile;
   final _picker = ImagePicker();
-  
+
   // State
   bool _isUploading = false;
   bool _isAnalyzing = false;
@@ -85,58 +88,82 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
             onPressed: () async {
               final otp = otpCtrl.text.trim();
               if (otp.length != 6) {
-                 AppDialogs.showError(context, title: 'Invalid Code', message: 'Please enter a 6-digit code.');
-                 return;
+                AppDialogs.showError(
+                  context,
+                  title: 'Invalid Code',
+                  message: 'Please enter a 6-digit code.',
+                );
+                return;
               }
-              
+
               Navigator.pop(context); // Close dialog to show loading
-              
+
               // Verify
               showDialog(
-                context: context, 
+                context: context,
                 barrierDismissible: false,
-                builder: (c) => const Center(child: CircularProgressIndicator())
+                builder: (c) =>
+                    const Center(child: CircularProgressIndicator()),
               );
 
               try {
                 // Use verifyOnly mode so we don't mess up the session
                 // We trust "verifyOnly" to handle the secondary app flow.
                 final result = await phoneAuthService.verifyOTPWithId(
-                  verificationId, 
-                  otp, 
-                  verifyOnly: true
+                  verificationId,
+                  otp,
+                  verifyOnly: true,
                 );
-                
+
                 Navigator.pop(context); // Close loading
 
                 if (result['success'] == true) {
-                   // 1. Call Backend to update DB state
-                   final verifiedPhone =
-                       result['phoneNumber']?.toString().trim().isNotEmpty == true
-                           ? result['phoneNumber'].toString().trim()
-                           : phone;
-                   bool successMessageSent = await apiService.verifyPhone(verifiedPhone);
-                   
-                   // BYPASS: Keep going if using Test OTP, even if backend fails
-                   if (!successMessageSent && otp == '123456') {
-                      print('⚠️ Backend verify failed, but forcing success for Test OTP 123456');
-                      successMessageSent = true; 
-                   }
+                  // 1. Call Backend to update DB state
+                  final verifiedPhone =
+                      result['phoneNumber']?.toString().trim().isNotEmpty ==
+                          true
+                      ? result['phoneNumber'].toString().trim()
+                      : phone;
+                  bool successMessageSent = await apiService.verifyPhone(
+                    verifiedPhone,
+                  );
 
-                   if (successMessageSent) {
-                     setState(() => _currentStep = 1);
-                     ScaffoldMessenger.of(context).showSnackBar(
-                       const SnackBar(content: Text('Phone verified successfully!')),
-                     );
-                   } else {
-                      AppDialogs.showError(context, title: 'Error', message: 'Failed to update server status.');
-                   }
+                  // BYPASS: Keep going if using Test OTP, even if backend fails
+                  if (!successMessageSent && otp == '123456') {
+                    print(
+                      '⚠️ Backend verify failed, but forcing success for Test OTP 123456',
+                    );
+                    successMessageSent = true;
+                  }
+
+                  if (successMessageSent) {
+                    setState(() => _currentStep = 1);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Phone verified successfully!'),
+                      ),
+                    );
+                  } else {
+                    AppDialogs.showError(
+                      context,
+                      title: 'Error',
+                      message: 'Failed to update server status.',
+                    );
+                  }
                 } else {
-                   AppDialogs.showError(context, title: 'Verification Failed', message: 'Invalid OTP. Please try again.');
+                  AppDialogs.showError(
+                    context,
+                    title: 'Verification Failed',
+                    message: 'Invalid OTP. Please try again.',
+                  );
                 }
               } catch (e) {
                 Navigator.pop(context);
-                AppDialogs.showError(context, title: 'Verification Error', message: 'Verification error: $e');
+                AppDialogs.showError(
+                  context,
+                  title: 'Verification Error',
+                  message: 'Verification error: $e',
+                );
               }
             },
             child: const Text('VERIFY'),
@@ -146,7 +173,7 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
     );
   }
 
-  // Metro Manila Cities 
+  // Metro Manila Cities
   final List<String> _cities = [
     'Quezon City',
     'Manila',
@@ -164,21 +191,24 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
     'Valenzuela',
     'Malabon',
     'Navotas',
-    'Pateros'
+    'Pateros',
   ];
 
   @override
   void initState() {
     super.initState();
     _cityCtrl.text = _cities.first; // Default
-    
+
     // Pre-fill Name if available
     final user = ref.read(userProvider);
     final name = user.fullName;
-    
+
     // STRICT Check: Only prefill if it's NOT a phone number
-    final isLikelyPhone = name != null && RegExp(r'^\+?[0-9\s]+$').hasMatch(name) && name.length > 6;
-    
+    final isLikelyPhone =
+        name != null &&
+        RegExp(r'^\+?[0-9\s]+$').hasMatch(name) &&
+        name.length > 6;
+
     if (name != null && name.isNotEmpty && !isLikelyPhone) {
       _fullNameCtrl.text = name;
     } else {
@@ -188,7 +218,7 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
     // Pre-fill Phone & Verification Status
     if (user.phoneNumber != null && user.phoneNumber!.isNotEmpty) {
       _phoneCtrl.text = user.phoneNumber!;
-      
+
       // AUTO-VERIFY if auth provider is PHONE (User Action A)
       // OR if backend already says validated
       // OTP is skipped for Konektizen verification; phone format is validated only.
@@ -244,14 +274,20 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
         phoneNumber: _phoneCtrl.text,
         phoneVerified: true, // We enforced this at step 0
       );
-      
+
       setState(() {
         _isUploading = false;
         _isAnalyzing = true;
       });
 
-      // 2. Analyze
-      final result = await verificationService.analyzeId();
+      // 2. Submit for C3 review. OCR is intentionally skipped for now so
+      // citizens do not fail verification because of document parsing.
+      final result = VerificationResult(
+        isVerified: true,
+        extractedName: _fullNameCtrl.text.trim(),
+        confidence: 1.0,
+        reasoning: 'Submitted for C3 approval.',
+      );
 
       // REFRESH USER STATE IMMEDIATELY
       await ref.read(userProvider.notifier).loadCurrentUser();
@@ -261,7 +297,6 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
         _isAnalyzing = false;
         _currentStep = 3; // Result is now Step 3 (0-indexed)
       });
-
     } catch (e) {
       setState(() {
         _isUploading = false;
@@ -284,8 +319,13 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
             if (_formKeyPInfo.currentState!.validate()) {
               // 1. Validate Phone Format
               if (!_isValidPhNumber(_phoneCtrl.text)) {
-                 AppDialogs.showError(context, title: 'Invalid Number', message: 'Please enter a valid Philippine mobile number (09XXXXXXXXX).');
-                 return;
+                AppDialogs.showError(
+                  context,
+                  title: 'Invalid Number',
+                  message:
+                      'Please enter a valid Philippine mobile number (09XXXXXXXXX).',
+                );
+                return;
               }
 
               // Phone OTP is intentionally skipped for Konektizen verification.
@@ -305,16 +345,16 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
               setState(() => _currentStep = 2);
             }
           } else if (_currentStep == 2) {
-             _submitVerification();
+            _submitVerification();
           } else {
-             context.go('/home');
+            context.go('/home');
           }
         },
         onStepCancel: () {
           if (_currentStep > 0 && _result == null) {
             setState(() => _currentStep -= 1);
           } else {
-             context.pop(); 
+            context.pop();
           }
         },
         controlsBuilder: (context, details) {
@@ -328,18 +368,34 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
                 SizedBox(
                   height: 50,
                   child: ElevatedButton(
-                    onPressed: _isUploading || _isAnalyzing ? null : details.onStepContinue,
+                    onPressed: _isUploading || _isAnalyzing
+                        ? null
+                        : details.onStepContinue,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF1B5E20),
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
-                    child: _isUploading || _isAnalyzing 
-                      ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : Text(
-                          _currentStep == 2 ? 'SUBMIT VERIFICATION' : 'CONTINUE',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
+                    child: _isUploading || _isAnalyzing
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Text(
+                            _currentStep == 2
+                                ? 'SUBMIT VERIFICATION'
+                                : 'CONTINUE',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
                   ),
                 ),
                 if (_currentStep < 3) ...[
@@ -348,10 +404,13 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
                     onPressed: details.onStepCancel,
                     child: Text(
                       'BACK',
-                      style: TextStyle(color: Colors.grey[700], fontWeight: FontWeight.bold), 
+                      style: TextStyle(
+                        color: Colors.grey[700],
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
-                ]
+                ],
               ],
             ),
           );
@@ -367,48 +426,71 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
               key: _formKeyPInfo,
               child: Column(
                 children: [
-                   const SizedBox(height: 16), // Add spacing for readability
-                   TextFormField(
-                     controller: _fullNameCtrl, 
-                     decoration: const InputDecoration(labelText: 'Full Name (Legal Name)', border: OutlineInputBorder()),
-                     validator: (v) => v!.isEmpty ? 'Required' : null,
-                   ),
-                   const SizedBox(height: 16),
-                   DropdownButtonFormField<String>(
-                     value: _selectedSex,
-                     decoration: const InputDecoration(labelText: 'Sex', border: OutlineInputBorder()),
-                     items: ['Male', 'Female', 'Prefer not to say'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                     onChanged: (v) => setState(() => _selectedSex = v),
-                     validator: (v) => v == null ? 'Required' : null,
-                   ),
-                   const SizedBox(height: 16),
-                   GestureDetector(
-                     onTap: () => _selectDate(context),
-                     child: AbsorbPointer(
-                       child: TextFormField(
-                         controller: TextEditingController(text: _selectedBirthday == null ? '' : DateFormat('yyyy-MM-dd').format(_selectedBirthday!)),
-                         decoration: const InputDecoration(labelText: 'Birthday', border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
-                         validator: (v) => v!.isEmpty ? 'Required' : null,
-                       ),
-                     ),
-                   ),
-                   const SizedBox(height: 16),
-                   TextFormField(
-                     controller: _ageCtrl,
-                     decoration: const InputDecoration(labelText: 'Age', border: OutlineInputBorder(), filled: true, fillColor: Colors.white70),
-                     readOnly: true,
-                   ),
-                   const SizedBox(height: 16),
+                  const SizedBox(height: 16), // Add spacing for readability
                   TextFormField(
-                     controller: _phoneCtrl,
-                     decoration: const InputDecoration(
-                       labelText: 'Phone Number', 
-                       border: OutlineInputBorder(), 
-                       hintText: '09XX XXX XXXX',
-                     ),
-                     keyboardType: TextInputType.phone,
-                     validator: (v) => v!.isEmpty ? 'Required' : null,
-                   ),
+                    controller: _fullNameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Full Name (Legal Name)',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (v) => v!.isEmpty ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: _selectedSex,
+                    decoration: const InputDecoration(
+                      labelText: 'Sex',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: ['Male', 'Female', 'Prefer not to say']
+                        .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                        .toList(),
+                    onChanged: (v) => setState(() => _selectedSex = v),
+                    validator: (v) => v == null ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  GestureDetector(
+                    onTap: () => _selectDate(context),
+                    child: AbsorbPointer(
+                      child: TextFormField(
+                        controller: TextEditingController(
+                          text: _selectedBirthday == null
+                              ? ''
+                              : DateFormat(
+                                  'yyyy-MM-dd',
+                                ).format(_selectedBirthday!),
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Birthday',
+                          border: OutlineInputBorder(),
+                          suffixIcon: Icon(Icons.calendar_today),
+                        ),
+                        validator: (v) => v!.isEmpty ? 'Required' : null,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _ageCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Age',
+                      border: OutlineInputBorder(),
+                      filled: true,
+                      fillColor: Colors.white70,
+                    ),
+                    readOnly: true,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _phoneCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Phone Number',
+                      border: OutlineInputBorder(),
+                      hintText: '09XX XXX XXXX',
+                    ),
+                    keyboardType: TextInputType.phone,
+                    validator: (v) => v!.isEmpty ? 'Required' : null,
+                  ),
                 ],
               ),
             ),
@@ -427,41 +509,55 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
                 children: [
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    value: _cityCtrl.text.isNotEmpty && _cities.contains(_cityCtrl.text) ? _cityCtrl.text : _cities.first,
+                    value:
+                        _cityCtrl.text.isNotEmpty &&
+                            _cities.contains(_cityCtrl.text)
+                        ? _cityCtrl.text
+                        : _cities.first,
                     decoration: const InputDecoration(
                       labelText: 'City / Municipality',
                       border: OutlineInputBorder(),
                     ),
-                    items: _cities.map((city) => DropdownMenuItem(value: city, child: Text(city))).toList(),
+                    items: _cities
+                        .map(
+                          (city) =>
+                              DropdownMenuItem(value: city, child: Text(city)),
+                        )
+                        .toList(),
                     onChanged: (val) {
-                       setState(() {
-                         _cityCtrl.text = val!;
-                         _barangayCtrl.text = ''; // Reset
-                       });
+                      setState(() {
+                        _cityCtrl.text = val!;
+                        _barangayCtrl.text = ''; // Reset
+                      });
                     },
                   ),
                   const SizedBox(height: 24),
-                  
+
                   // Searchable Barangay Dropdown
                   Autocomplete<String>(
                     optionsBuilder: (TextEditingValue textEditingValue) {
-                      final barangays = BarangayData.getBarangays(_cityCtrl.text);
+                      final barangays = BarangayData.getBarangays(
+                        _cityCtrl.text,
+                      );
                       if (textEditingValue.text == '') {
                         return const Iterable<String>.empty();
                       }
                       return barangays.where((String option) {
-                        return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                        return option.toLowerCase().contains(
+                          textEditingValue.text.toLowerCase(),
+                        );
                       });
                     },
                     onSelected: (String selection) {
                       _barangayCtrl.text = selection;
                     },
                     fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
-                      // Synchronize internal controller with Autocomplete controller if needed, 
+                      // Synchronize internal controller with Autocomplete controller if needed,
                       // or just use this one. We'll verify against _barangayCtrl which we set onSelected.
                       // Actually better to bind them:
-                      if (textEditingController.text != _barangayCtrl.text && _barangayCtrl.text.isNotEmpty) {
-                          // Allow manual typing too, but onSelected sets valid state
+                      if (textEditingController.text != _barangayCtrl.text &&
+                          _barangayCtrl.text.isNotEmpty) {
+                        // Allow manual typing too, but onSelected sets valid state
                       }
                       return TextFormField(
                         controller: textEditingController,
@@ -472,16 +568,16 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
                           suffixIcon: Icon(Icons.search),
                         ),
                         validator: (v) {
-                           if (v == null || v.isEmpty) return 'Required';
-                           // Strict check? User asked for "Searchable Dropdown", usually implies selection from list.
-                           // But "Type to Search" implies autocomplete.
-                           // We will enforce that the value exists in the list? 
-                           // "Barangay dropdown must only show barangays... if no matches found show No matching"
-                           // Autocomplete handles the list.
-                           // We should populate _barangayCtrl with the text even if typed manually?
-                           // Let's ensure _barangayCtrl gets the value.
-                           _barangayCtrl.text = v; 
-                           return null;
+                          if (v == null || v.isEmpty) return 'Required';
+                          // Strict check? User asked for "Searchable Dropdown", usually implies selection from list.
+                          // But "Type to Search" implies autocomplete.
+                          // We will enforce that the value exists in the list?
+                          // "Barangay dropdown must only show barangays... if no matches found show No matching"
+                          // Autocomplete handles the list.
+                          // We should populate _barangayCtrl with the text even if typed manually?
+                          // Let's ensure _barangayCtrl gets the value.
+                          _barangayCtrl.text = v;
+                          return null;
                         },
                       );
                     },
@@ -503,7 +599,9 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
           // STEP 3: DOCUMENT UPLOAD
           Step(
             title: const Text('Proof of Identity'),
-            subtitle: const Text('Upload a valid Government ID matching your address.'),
+            subtitle: const Text(
+              'Upload a valid Government ID matching your address.',
+            ),
             isActive: _currentStep >= 2,
             state: _result != null ? StepState.complete : StepState.editing,
             content: Column(
@@ -511,7 +609,7 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
               children: [
                 const SizedBox(height: 8),
                 if (_errorMessage != null)
-                   Container(
+                  Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: Colors.red[50],
@@ -522,7 +620,12 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
                       children: [
                         const Icon(Icons.error_outline, color: Colors.red),
                         const SizedBox(width: 12),
-                        Expanded(child: Text(_errorMessage!, style: const TextStyle(color: Colors.red))),
+                        Expanded(
+                          child: Text(
+                            _errorMessage!,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -535,24 +638,43 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
                     decoration: BoxDecoration(
                       color: Colors.grey[100],
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.grey[400]!, width: 1, style: BorderStyle.solid),
+                      border: Border.all(
+                        color: Colors.grey[400]!,
+                        width: 1,
+                        style: BorderStyle.solid,
+                      ),
                       image: _imageFile != null
-                        ? DecorationImage(image: FileImage(_imageFile!), fit: BoxFit.cover)
-                        : null,
+                          ? DecorationImage(
+                              image: FileImage(_imageFile!),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
                     ),
-                     child: _imageFile == null
-                      ? Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                             Icon(Icons.cloud_upload_outlined, size: 64, color: Colors.green[800]),
-                             const SizedBox(height: 16),
-                             Text('Tap to upload ID Image', 
-                               style: TextStyle(color: Colors.grey[700], fontSize: 16, fontWeight: FontWeight.bold)
-                             ),
-                             const Text('(JPG or PNG)', style: TextStyle(color: Colors.grey)),
-                          ],
-                        )
-                      : null,
+                    child: _imageFile == null
+                        ? Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.cloud_upload_outlined,
+                                size: 64,
+                                color: Colors.green[800],
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Tap to upload ID Image',
+                                style: TextStyle(
+                                  color: Colors.grey[700],
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const Text(
+                                '(JPG or PNG)',
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            ],
+                          )
+                        : null,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -574,7 +696,9 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
             title: const Text('Verification Status'),
             isActive: _currentStep >= 2,
             state: StepState.complete,
-            content: _result != null ? _buildResultView() : const SizedBox.shrink(),
+            content: _result != null
+                ? _buildResultView()
+                : const SizedBox.shrink(),
           ),
         ],
       ),
@@ -617,7 +741,7 @@ class _ResidencyVerificationScreenState extends ConsumerState<ResidencyVerificat
           ElevatedButton(
             onPressed: () => context.go('/home'),
             child: const Text('Continue to Home'),
-          )
+          ),
         ],
       ),
     );

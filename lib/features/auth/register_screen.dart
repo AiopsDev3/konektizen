@@ -33,12 +33,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
 
     setState(() => _isLoading = true);
-    final result = await apiService.register(
-      name,
-      email, 
-      password,
-    );
-    
+    final result = await apiService.register(name, email, password);
+
     if (!mounted) return;
     setState(() => _isLoading = false);
 
@@ -70,7 +66,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-
   Future<void> _handleFacebookRegister() async {
     setState(() => _isLoading = true);
     try {
@@ -81,87 +76,46 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (result.status == LoginStatus.success) {
         final AccessToken accessToken = result.accessToken!;
         // Use the same endpoint as login, as it handles creation
-        final apiResult = await apiService.facebookLogin(accessToken.tokenString);
-        
+        final apiResult = await apiService.facebookLogin(
+          accessToken.tokenString,
+        );
+
         if (!mounted) return;
         setState(() => _isLoading = false);
 
         if (apiResult != null && apiResult['error'] == null) {
-           _checkVerificationAndProceed(apiResult);
+          _checkVerificationAndProceed(apiResult);
         } else {
-           if(mounted) {
-             AppDialogs.showError(
-               context,
-               title: 'Registration Failed',
-               message: apiResult?['error'] ?? 'Failed to authenticate with backend.',
-             );
-           }
+          if (mounted) {
+            AppDialogs.showError(
+              context,
+              title: 'Registration Failed',
+              message:
+                  apiResult?['error'] ?? 'Failed to authenticate with backend.',
+            );
+          }
         }
       } else {
         if (!mounted) return;
         setState(() => _isLoading = false);
         if (result.status == LoginStatus.failed) {
-           AppDialogs.showError(
-             context,
-             title: 'Facebook Error',
-             message: result.message ?? 'Facebook login failed.',
-           );
+          AppDialogs.showError(
+            context,
+            title: 'Facebook Error',
+            message: result.message ?? 'Facebook login failed.',
+          );
         }
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      AppDialogs.showError(
-        context,
-        title: 'Error',
-        message: e.toString(),
-      );
+      AppDialogs.showError(context, title: 'Error', message: e.toString());
     }
   }
 
   void _checkVerificationAndProceed(Map<String, dynamic> data) {
     if (!mounted) return;
-
-    final user = data['user'];
-    final isVerified = user['isVerified'] == true; 
-    
-    if (!isVerified) {
-      _showVerificationPrompt();
-    } else {
-      context.go('/home');
-    }
-  }
-
-  void _showVerificationPrompt() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('I-verify ang iyong account'),
-        content: const Text(
-          'Para magamit nang buo ang KONEKTIZEN',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context); 
-              context.go('/home'); 
-            },
-            child: const Text('\'Wag muna'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              context.go('/home');
-              Future.delayed(const Duration(milliseconds: 100), () {
-                if (mounted) context.push('/verify-id');
-              });
-            },
-            child: const Text('Mag-verify ngayon'),
-          ),
-        ],
-      ),
-    );
+    context.go('/home');
   }
 
   @override
@@ -193,66 +147,69 @@ class _RegisterScreenState extends State<RegisterScreen> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: _isLoading ? null : _handleRegister,
-                child: _isLoading 
-                  ? const CircularProgressIndicator(color: Colors.white) 
-                  : const Text('Gumawa ng Account'),
+                child: _isLoading
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text('Gumawa ng Account'),
               ),
             ),
             const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _handleFacebookRegister,
-                  icon: const Icon(Icons.facebook, color: Colors.white),
-                  label: const Text('Magpatuloy gamit ang Facebook', 
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    )
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isLoading ? null : _handleFacebookRegister,
+                icon: const Icon(Icons.facebook, color: Colors.white),
+                label: const Text(
+                  'Magpatuloy gamit ang Facebook',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1877F2), // Facebook Blue
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8), // Rounded corners
-                    ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1877F2), // Facebook Blue
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8), // Rounded corners
                   ),
                 ),
               ),
+            ),
 
-              const SizedBox(height: 12),
-              
-              // Phone Registration Button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : () => context.push(
-                    '/auth/phone-login', 
-                    extra: {'isRegister': true},
+            const SizedBox(height: 12),
+
+            // Phone Registration Button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isLoading
+                    ? null
+                    : () => context.push(
+                        '/auth/phone-login',
+                        extra: {'isRegister': true},
+                      ),
+                icon: const Icon(Icons.phone_android, color: Colors.white),
+                label: const Text(
+                  'Magpatuloy gamit ang Numero',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
                   ),
-                  icon: const Icon(Icons.phone_android, color: Colors.white),
-                  label: const Text('Magpatuloy gamit ang Numero',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    )
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
                   ),
                 ),
               ),
-
+            ),
           ],
         ),
       ),

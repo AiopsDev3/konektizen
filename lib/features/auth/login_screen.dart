@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:konektizen/core/api/api_service.dart';
-import 'package:konektizen/core/config/environment.dart';
 import 'package:konektizen/core/widgets/validation_dialog.dart';
 import 'package:konektizen/theme/app_theme.dart';
 
@@ -24,21 +23,24 @@ class _LoginScreenState extends State<LoginScreen> {
       ValidationDialog.show(context, 'Please enter your email');
       return;
     }
-    
+
     if (_passCtrl.text.isEmpty) {
       ValidationDialog.show(context, 'Please enter your password');
       return;
     }
-    
+
     if (!_emailCtrl.text.contains('@')) {
       ValidationDialog.show(context, 'Please enter a valid email address');
       return;
     }
-    
+
     setState(() => _isLoading = true);
     try {
-      final result = await apiService.login(_emailCtrl.text.trim(), _passCtrl.text);
-      
+      final result = await apiService.login(
+        _emailCtrl.text.trim(),
+        _passCtrl.text,
+      );
+
       if (!mounted) return;
       setState(() => _isLoading = false);
 
@@ -54,9 +56,9 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -69,8 +71,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (result.status == LoginStatus.success) {
         final AccessToken accessToken = result.accessToken!;
-        final apiResult = await apiService.facebookLogin(accessToken.tokenString);
-        
+        final apiResult = await apiService.facebookLogin(
+          accessToken.tokenString,
+        );
+
         if (!mounted) return;
         setState(() => _isLoading = false);
 
@@ -79,7 +83,9 @@ class _LoginScreenState extends State<LoginScreen> {
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(apiResult?['error'] ?? 'Facebook login failed')),
+              SnackBar(
+                content: Text(apiResult?['error'] ?? 'Facebook login failed'),
+              ),
             );
           }
         }
@@ -94,56 +100,16 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Facebook login error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Facebook login error: $e')));
       }
     }
   }
 
   void _checkVerificationAndProceed(Map<String, dynamic> data) {
     if (!mounted) return;
-
-    final user = data['user'];
-    final isVerified = user?['isVerified'] == true; 
-    
-    if (!isVerified) {
-      _showVerificationPrompt();
-    } else {
-      context.go('/home');
-    }
-  }
-
-  void _showVerificationPrompt() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('I-verify ang iyong account'),
-        content: const Text(
-          'Para magamit nang buo ang KONEKTIZEN',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context); 
-              context.go('/home'); 
-            },
-            child: const Text('\'Wag muna'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              context.go('/home');
-              Future.delayed(const Duration(milliseconds: 100), () {
-                if (mounted) context.push('/verify-id');
-              });
-            },
-            child: const Text('Mag-verify ngayon'),
-          ),
-        ],
-      ),
-    );
+    context.go('/home');
   }
 
   @override
@@ -167,19 +133,13 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 16),
               const Text(
                 'Welcome to Konektizen',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
               const Text(
                 'Connect with your community today.',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey,
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
@@ -224,7 +184,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       ? const CircularProgressIndicator(color: Colors.white)
                       : const Text(
                           'Mag-login',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                 ),
               ),
@@ -237,7 +200,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   icon: const Icon(Icons.facebook, color: Colors.white),
                   label: const Text(
                     'Magpatuloy gamit ang Facebook',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF1877F2),
@@ -253,10 +220,12 @@ class _LoginScreenState extends State<LoginScreen> {
               SizedBox(
                 height: 50,
                 child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : () => context.push(
-                    '/auth/phone-login',
-                    extra: {'isRegister': false},
-                  ),
+                  onPressed: _isLoading
+                      ? null
+                      : () => context.push(
+                          '/auth/phone-login',
+                          extra: {'isRegister': false},
+                        ),
                   icon: const Icon(Icons.phone, color: Colors.white),
                   label: const Text(
                     'Magpatuloy gamit ang Numero',
