@@ -6,30 +6,47 @@ class WebRTCManager {
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
   bool _isFrontCamera = true;
-  
+
   final Map<String, dynamic> _configuration = {
     'iceServers': [
       {'urls': 'stun:stun.l.google.com:19302'},
-    ]
+    ],
   };
 
   Future<void> init() async {
     _peerConnection = await createPeerConnection(_configuration);
   }
 
+  Map<String, dynamic> get _preferredVideoConstraints => {
+    'facingMode': _isFrontCamera ? 'user' : 'environment',
+  };
+
+  Future<MediaStream> _getCameraStream() async {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        'audio': false,
+        'video': _preferredVideoConstraints,
+      });
+    } catch (e) {
+      print('[WebRTC] Preferred camera failed, trying any camera: $e');
+      return navigator.mediaDevices.getUserMedia({
+        'audio': false,
+        'video': true,
+      });
+    }
+  }
+
   Future<MediaStream> getUserMedia() async {
     final Map<String, dynamic> mediaConstraints = {
       'audio': true,
-      'video': {
-        'facingMode': _isFrontCamera ? 'user' : 'environment',
-      }
+      'video': _preferredVideoConstraints,
     };
-    
+
     _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
     _localStream!.getTracks().forEach((track) {
       _peerConnection?.addTrack(track, _localStream!);
     });
-    
+
     return _localStream!;
   }
 
@@ -39,18 +56,18 @@ class WebRTCManager {
       'audio': true,
       'video': false,
     };
-    
+
     _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
     _localStream!.getTracks().forEach((track) {
       _peerConnection?.addTrack(track, _localStream!);
     });
-    
+
     // Add video transceiver for future camera toggle
     await _peerConnection?.addTransceiver(
       kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
       init: RTCRtpTransceiverInit(direction: TransceiverDirection.RecvOnly),
     );
-    
+
     print('[WebRTC] Started with audio-only + video transceiver (recvonly)');
     return _localStream!;
   }
@@ -67,28 +84,27 @@ class WebRTCManager {
 
     if (enabled) {
       print('[WebRTC] Enabling camera...');
-      
-      // Get video stream
-      final videoStream = await navigator.mediaDevices.getUserMedia({
-        'audio': false,
-        'video': {
-          'facingMode': _isFrontCamera ? 'user' : 'environment',
-        }
-      });
-      
-      final videoTrack = videoStream.getVideoTracks()[0];
-      
+
+      // Get video stream. Some Android devices reject strict front/back
+      // constraints, so fall back to any available camera.
+      final videoStream = await _getCameraStream();
+      final videoTracks = videoStream.getVideoTracks();
+      if (videoTracks.isEmpty) {
+        throw StateError('No camera tracks available on this device');
+      }
+      final videoTrack = videoTracks[0];
+
       // Find video sender and replace track
       final senders = await _peerConnection!.getSenders();
       RTCRtpSender? videoSender;
-      
+
       for (var sender in senders) {
         if (sender.track?.kind == 'video') {
           videoSender = sender;
           break;
         }
       }
-      
+
       if (videoSender != null) {
         await videoSender.replaceTrack(videoTrack);
         print('[WebRTC] Replaced video track');
@@ -97,35 +113,36 @@ class WebRTCManager {
         await _peerConnection!.addTrack(videoTrack, _localStream!);
         print('[WebRTC] Added new video track');
       }
-      
+
       // Store video track in local stream
       _localStream?.addTrack(videoTrack);
 
       // Ensure transceiver direction is SendRecv
       final transceivers = await _peerConnection!.getTransceivers();
       for (var transceiver in transceivers) {
-         if (transceiver.sender.track?.kind == 'video' || transceiver.receiver.track?.kind == 'video') {
-            await transceiver.setDirection(TransceiverDirection.SendRecv);
-            break;
-         }
+        if (transceiver.sender.track?.kind == 'video' ||
+            transceiver.receiver.track?.kind == 'video') {
+          await transceiver.setDirection(TransceiverDirection.SendRecv);
+          break;
+        }
       }
-      
     } else {
       print('[WebRTC] Disabling camera...');
-      
+
       // Find video sender and remove track
       // Find video sender and remove track
       final transceivers = await _peerConnection!.getTransceivers();
       for (var transceiver in transceivers) {
-        if (transceiver.sender.track?.kind == 'video' || transceiver.receiver.track?.kind == 'video') {
-           await transceiver.sender.replaceTrack(null);
-           await transceiver.setDirection(TransceiverDirection.RecvOnly);
-           print('[WebRTC] Removed video track and set direction to RecvOnly');
-           break;
+        if (transceiver.sender.track?.kind == 'video' ||
+            transceiver.receiver.track?.kind == 'video') {
+          await transceiver.sender.replaceTrack(null);
+          await transceiver.setDirection(TransceiverDirection.RecvOnly);
+          print('[WebRTC] Removed video track and set direction to RecvOnly');
+          break;
         }
       }
     }
-    
+
     // Renegotiate
     print('[WebRTC] Creating new offer for renegotiation...');
     final offer = await _peerConnection!.createOffer();
@@ -135,10 +152,10 @@ class WebRTCManager {
 
   Future<void> switchCamera() async {
     if (_localStream == null) return;
-    
+
     // Toggle camera state
     _isFrontCamera = !_isFrontCamera;
-    
+
     // Helper to find video track
     MediaStreamTrack? videoTrack;
     try {

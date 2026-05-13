@@ -29,7 +29,7 @@ class _CallScreenState extends State<CallScreen> {
   final WebRTCManager _rtcManager = WebRTCManager();
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
-  
+
   bool _inCall = false;
   bool _micOn = true;
   bool _cameraOn = false; // C3 Spec: Start with camera off
@@ -44,7 +44,7 @@ class _CallScreenState extends State<CallScreen> {
   void initState() {
     super.initState();
     _initCall();
-    
+
     // Listen for PiP mode changes from native Android
     PiPOverlay.setupPiPListener((bool isInPiP) {
       if (mounted) {
@@ -62,31 +62,38 @@ class _CallScreenState extends State<CallScreen> {
       print('[CallScreen] CallID: ${widget.callId}');
       print('[CallScreen] Token: ${widget.token}');
       print('[CallScreen] Role: ${widget.role}');
-      
-      // Request permissions
-      print('[CallScreen] Requesting camera and microphone permissions...');
-      final permissions = await [Permission.camera, Permission.microphone].request();
-      
-      if (permissions[Permission.camera] != PermissionStatus.granted ||
-          permissions[Permission.microphone] != PermissionStatus.granted) {
-        print('[CallScreen] ERROR: Permissions denied');
+
+      // SOS must work even when a device has no usable camera. Microphone is
+      // required for the call; camera is requested only as an optional upgrade.
+      print('[CallScreen] Requesting microphone permission...');
+      final micStatus = await Permission.microphone.request();
+      final cameraStatus = await Permission.camera.request();
+
+      if (micStatus != PermissionStatus.granted) {
+        print('[CallScreen] ERROR: Microphone permission denied');
         setState(() {
           _hasError = true;
-          _errorMessage = 'Camera and microphone permissions are required for video calls.';
+          _errorMessage = 'Microphone permission is required for SOS calls.';
         });
         return;
       }
-      
-      print('[CallScreen] Permissions granted');
+
+      if (cameraStatus != PermissionStatus.granted) {
+        print(
+          '[CallScreen] Camera permission not granted; continuing audio-only.',
+        );
+      }
+
+      print('[CallScreen] Required permissions granted');
       print('[CallScreen] Initializing renderers...');
       await _localRenderer.initialize();
       await _remoteRenderer.initialize();
       print('[CallScreen] Renderers initialized');
-      
+
       print('[CallScreen] Initializing RTC manager...');
       await _rtcManager.init();
       print('[CallScreen] RTC manager initialized');
-      
+
       // Setup Media - C3 Spec: Start with audio-only
       print('[CallScreen] Getting user media (audio-only)...');
       final localStream = await _rtcManager.getUserMediaAudioOnly();
@@ -113,33 +120,33 @@ class _CallScreenState extends State<CallScreen> {
       };
 
       _signaling.onAnswer = (data) async {
-         print("[CallScreen] Received Answer");
-         var sdp = RTCSessionDescription(data['sdp'], data['type']);
-         await _rtcManager.setRemoteDescription(sdp);
+        print("[CallScreen] Received Answer");
+        var sdp = RTCSessionDescription(data['sdp'], data['type']);
+        await _rtcManager.setRemoteDescription(sdp);
       };
 
       _signaling.onIceCandidate = (data) {
-         print("[CallScreen] Received ICE Candidate");
-         var candidate = RTCIceCandidate(
-           data['candidate'], 
-           data['sdpMid'], 
-           data['sdpMLineIndex']
-         );
-         _rtcManager.addCandidate(candidate);
+        print("[CallScreen] Received ICE Candidate");
+        var candidate = RTCIceCandidate(
+          data['candidate'],
+          data['sdpMid'],
+          data['sdpMLineIndex'],
+        );
+        _rtcManager.addCandidate(candidate);
       };
 
       // [NEW] Handle Camera Toggle from C3
       _signaling.onCameraToggle = (enabled) {
-         print("[CallScreen] Remote Camera Toggled: $enabled");
-         setState(() {
-            _remoteVideoEnabled = enabled;
-         });
+        print("[CallScreen] Remote Camera Toggled: $enabled");
+        setState(() {
+          _remoteVideoEnabled = enabled;
+        });
       };
 
       // [NEW] Handle Mic Toggle from C3
       _signaling.onMicToggle = (enabled) {
-         print("[CallScreen] Remote Mic Toggled: $enabled");
-         // Update UI if we had a "remote mute" icon
+        print("[CallScreen] Remote Mic Toggled: $enabled");
+        // Update UI if we had a "remote mute" icon
       };
 
       _signaling.onEndCall = () {
@@ -148,7 +155,7 @@ class _CallScreenState extends State<CallScreen> {
           _hangUp();
         }
       };
-      
+
       // RTC Callbacks
       _rtcManager.onIceCandidate((candidate) {
         print("[CallScreen] Sending ICE Candidate");
@@ -163,36 +170,37 @@ class _CallScreenState extends State<CallScreen> {
           // If a new stream arrives, assume video is enabled unless told otherwise
           // or check tracks.
           if (stream.getVideoTracks().isNotEmpty) {
-             _remoteVideoEnabled = true; // Assuming active tracks
+            _remoteVideoEnabled = true; // Assuming active tracks
           }
         });
       });
-      
+
       // [NEW] Handle Track Updates (Renegotiation)
       _rtcManager.onTrack((event) {
-         print("[CallScreen] Remote Track Event: ${event.track.kind}");
-         if (event.track.kind == 'video') {
-            print("[CallScreen] Video track updated/added");
-            if (event.streams.isNotEmpty) {
-               setState(() {
-                 _remoteRenderer.srcObject = event.streams[0];
-                 _remoteVideoEnabled = true;
-               });
-            }
-         }
+        print("[CallScreen] Remote Track Event: ${event.track.kind}");
+        if (event.track.kind == 'video') {
+          print("[CallScreen] Video track updated/added");
+          if (event.streams.isNotEmpty) {
+            setState(() {
+              _remoteRenderer.srcObject = event.streams[0];
+              _remoteVideoEnabled = true;
+            });
+          }
+        }
       });
 
       // Connect Signaling
       print('[CallScreen] Connecting to signaling server...');
       _signaling.connect(widget.callId, widget.token, widget.role);
-      
+
       // Set timeout for responder to join (2 minutes)
       Future.delayed(const Duration(minutes: 2), () {
         if (mounted && !_inCall) {
           print('[CallScreen] Timeout: Responder did not join');
           setState(() {
             _hasError = true;
-            _errorMessage = 'Responder did not join the call. Please try again.';
+            _errorMessage =
+                'Responder did not join the call. Please try again.';
           });
           Future.delayed(const Duration(seconds: 3), () {
             if (mounted) _hangUp();
@@ -217,41 +225,41 @@ class _CallScreenState extends State<CallScreen> {
     } catch (e) {
       print('Error ending call via signaling: $e');
     }
-    
+
     // Clean up PiP if showing
     if (_isPiPMode) {
       PiPOverlay.hide();
       _isPiPMode = false;
     }
-    
+
     try {
       _rtcManager.dispose();
     } catch (e) {
       print('Error disposing RTC manager: $e');
     }
-    
+
     try {
       _localRenderer.dispose();
       _remoteRenderer.dispose();
     } catch (e) {
       print('Error disposing renderers: $e');
     }
-    
+
     if (mounted) Navigator.pop(context);
   }
-  
+
   void _minimizeToPiP() {
     // This method is no longer used - PiP only activates when calling 911
   }
-  
+
   void _returnFromPiP() {
     // This method is no longer used - PiP only activates when calling 911
   }
-  
+
   Future<void> _callHotline() async {
     if (widget.hotlineNumber != null) {
       print('[CallScreen] CALL 911 button pressed');
-      
+
       // Enter native Android PiP mode FIRST
       if (_inCall && !_isPiPMode) {
         print('[CallScreen] Entering PiP mode before launching dialer');
@@ -259,7 +267,7 @@ class _CallScreenState extends State<CallScreen> {
           PiPOverlay.show(
             context: context,
             localRenderer: _localRenderer,
-            onTap: () {}, 
+            onTap: () {},
             onClose: _hangUp,
           );
           setState(() {
@@ -272,7 +280,7 @@ class _CallScreenState extends State<CallScreen> {
           print('[CallScreen] Error entering PiP: $e');
         }
       }
-      
+
       // Now launch the dialer
       final Uri launchUri = Uri(scheme: 'tel', path: widget.hotlineNumber!);
       try {
@@ -281,7 +289,9 @@ class _CallScreenState extends State<CallScreen> {
           await launchUrl(launchUri);
           print('[CallScreen] Dialer launched successfully');
         } else {
-          print('[CallScreen] Cannot launch dialer for ${widget.hotlineNumber}');
+          print(
+            '[CallScreen] Cannot launch dialer for ${widget.hotlineNumber}',
+          );
         }
       } catch (e) {
         print('[CallScreen] Error launching dialer: $e');
@@ -302,11 +312,11 @@ class _CallScreenState extends State<CallScreen> {
       // Since sendSignal now accepts dynamic, we can send generic ID or try to use parsed ID.
       try {
         _signaling.sendSignal(
-          to: 'c3', 
+          to: 'c3',
           reporterId: 0, // Placeholder, backend often routes by socket room
           callId: widget.callId,
           type: 'mic',
-          payload: {'enabled': enabled}
+          payload: {'enabled': enabled},
         );
       } catch (e) {
         print("[CallScreen] Error sending mic signal: $e");
@@ -325,8 +335,23 @@ class _CallScreenState extends State<CallScreen> {
   // C3 Spec: Toggle camera on/off with renegotiation
   void _toggleCamera() async {
     final newState = !_cameraOn;
-    
+
     try {
+      if (newState) {
+        final cameraStatus = await Permission.camera.request();
+        if (cameraStatus != PermissionStatus.granted) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Camera is unavailable. SOS audio is still active.',
+                ),
+              ),
+            );
+          }
+          return;
+        }
+      }
       await _rtcManager.toggleCameraEnabled(
         enabled: newState,
         onOfferCreated: (offer) {
@@ -338,21 +363,18 @@ class _CallScreenState extends State<CallScreen> {
             type: 'camera',
             payload: {'enabled': newState},
           );
-            
+
           // Send new offer for renegotiation
           _signaling.sendSignal(
-              to: 'c3',
-              reporterId: 0, // Placeholder
-              callId: widget.callId,
-              type: 'offer',
-              payload: {
-                'type': offer.type,
-                'sdp': offer.sdp,
-              },
-            );
+            to: 'c3',
+            reporterId: 0, // Placeholder
+            callId: widget.callId,
+            type: 'offer',
+            payload: {'type': offer.type, 'sdp': offer.sdp},
+          );
         },
       );
-      
+
       setState(() => _cameraOn = newState);
       print('[CallScreen] Camera toggled: $newState');
     } catch (e) {
@@ -396,11 +418,18 @@ class _CallScreenState extends State<CallScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.error_outline, color: Colors.red, size: 80),
+                          const Icon(
+                            Icons.error_outline,
+                            color: Colors.red,
+                            size: 80,
+                          ),
                           const SizedBox(height: 24),
                           Text(
                             _errorMessage,
-                            style: const TextStyle(color: Colors.white, fontSize: 18),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                            ),
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 32),
@@ -408,71 +437,107 @@ class _CallScreenState extends State<CallScreen> {
                             onPressed: _hangUp,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.red,
-                              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 32,
+                                vertical: 16,
+                              ),
                             ),
-                            child: const Text('CLOSE', style: TextStyle(color: Colors.white)),
+                            child: const Text(
+                              'CLOSE',
+                              style: TextStyle(color: Colors.white),
+                            ),
                           ),
                         ],
                       ),
                     ),
                   )
                 : Stack(
-                      children: [
-                        // 1. The Video View (Always mounted but maybe hidden)
-                        RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
-                        
-                        // 2. Audio Call UI (If BOTH cameras are OFF)
-                        if (!_cameraOn && !_remoteVideoEnabled) 
-                          Container(
-                             color: const Color(0xFF0F172A), // Dark Slate
-                             child: Center(
-                               child: Column(
-                                 mainAxisSize: MainAxisSize.min,
-                                 children: [
-                                   Container(
-                                     width: 120,
-                                     height: 120,
-                                     decoration: BoxDecoration(
-                                       shape: BoxShape.circle,
-                                       gradient: const LinearGradient(
-                                          colors: [Colors.blue, Colors.blueAccent],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                       ),
-                                       boxShadow: [
-                                          BoxShadow(color: Colors.blue.withOpacity(0.4), blurRadius: 20, spreadRadius: 5)
-                                       ]
-                                     ),
-                                     child: const Icon(Icons.call, color: Colors.white, size: 50),
-                                   ),
-                                   const SizedBox(height: 24),
-                                   const Text("Audio Call", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                                   const SizedBox(height: 8),
-                                   const Text("Camera is off for both parties", style: TextStyle(color: Colors.white54)),
-                                 ],
-                               ),
-                             ),
-                          )
-                        // 3. Remote Camera Off Overlay (If Local ON but Remote OFF)
-                        else if (!_remoteVideoEnabled)
-                            Container(
-                              color: Colors.black87,
-                              child: Center(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.videocam_off, color: Colors.white54, size: 48),
-                                    const SizedBox(height: 12),
-                                    const Text(
-                                      "Camera Off",
-                                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500),
+                    children: [
+                      // 1. The Video View (Always mounted but maybe hidden)
+                      RTCVideoView(
+                        _remoteRenderer,
+                        objectFit:
+                            RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                      ),
+
+                      // 2. Audio Call UI (If BOTH cameras are OFF)
+                      if (!_cameraOn && !_remoteVideoEnabled)
+                        Container(
+                          color: const Color(0xFF0F172A), // Dark Slate
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 120,
+                                  height: 120,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    gradient: const LinearGradient(
+                                      colors: [Colors.blue, Colors.blueAccent],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
                                     ),
-                                  ],
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.blue.withOpacity(0.4),
+                                        blurRadius: 20,
+                                        spreadRadius: 5,
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Icon(
+                                    Icons.call,
+                                    color: Colors.white,
+                                    size: 50,
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(height: 24),
+                                const Text(
+                                  "Audio Call",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  "Camera is off for both parties",
+                                  style: TextStyle(color: Colors.white54),
+                                ),
+                              ],
                             ),
-                      ],
-                    ),
+                          ),
+                        )
+                      // 3. Remote Camera Off Overlay (If Local ON but Remote OFF)
+                      else if (!_remoteVideoEnabled)
+                        Container(
+                          color: Colors.black87,
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.videocam_off,
+                                  color: Colors.white54,
+                                  size: 48,
+                                ),
+                                const SizedBox(height: 12),
+                                const Text(
+                                  "Camera Off",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
           ),
           // Local Video (Small Overlay) - Hidden in PiP mode
           if (!_isPiPMode)
@@ -501,49 +566,75 @@ class _CallScreenState extends State<CallScreen> {
           // Controls - Hidden in PiP mode
           if (!_isPiPMode)
             Positioned(
-            bottom: 40,
-            left: 0,
-            right: 0,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                IconButton(
-                  icon: Icon(_micOn ? Icons.mic : Icons.mic_off, color: Colors.white, size: 30),
-                  onPressed: _toggleMic,
-                  style: IconButton.styleFrom(backgroundColor: Colors.grey.withOpacity(0.5)),
-                ),
-                // Switch Camera Button
-                IconButton(
-                    icon: const Icon(Icons.cameraswitch, color: Colors.white, size: 30),
-                    onPressed: _switchCamera,
-                    style: IconButton.styleFrom(backgroundColor: Colors.grey.withOpacity(0.5)),
-                ),
-                if (widget.hotlineNumber != null)
+              bottom: 40,
+              left: 0,
+              right: 0,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
                   IconButton(
-                    icon: const Icon(Icons.phone, color: Colors.white, size: 30),
-                    onPressed: _callHotline,
+                    icon: Icon(
+                      _micOn ? Icons.mic : Icons.mic_off,
+                      color: Colors.white,
+                      size: 30,
+                    ),
+                    onPressed: _toggleMic,
                     style: IconButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      padding: const EdgeInsets.all(16),
+                      backgroundColor: Colors.grey.withOpacity(0.5),
                     ),
                   ),
-                // Hang Up Button
+                  // Switch Camera Button
                   IconButton(
-                    icon: const Icon(Icons.call_end, color: Colors.white, size: 30),
+                    icon: const Icon(
+                      Icons.cameraswitch,
+                      color: Colors.white,
+                      size: 30,
+                    ),
+                    onPressed: _switchCamera,
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.grey.withOpacity(0.5),
+                    ),
+                  ),
+                  if (widget.hotlineNumber != null)
+                    IconButton(
+                      icon: const Icon(
+                        Icons.phone,
+                        color: Colors.white,
+                        size: 30,
+                      ),
+                      onPressed: _callHotline,
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        padding: const EdgeInsets.all(16),
+                      ),
+                    ),
+                  // Hang Up Button
+                  IconButton(
+                    icon: const Icon(
+                      Icons.call_end,
+                      color: Colors.white,
+                      size: 30,
+                    ),
                     onPressed: _hangUp,
                     style: IconButton.styleFrom(
                       backgroundColor: Colors.red,
                       padding: const EdgeInsets.all(16),
                     ),
                   ),
-                IconButton(
-                  icon: Icon(_cameraOn ? Icons.videocam : Icons.videocam_off, color: Colors.white, size: 30),
-                  onPressed: _toggleCamera,
-                  style: IconButton.styleFrom(backgroundColor: Colors.grey.withOpacity(0.5)),
-                ),
-              ],
+                  IconButton(
+                    icon: Icon(
+                      _cameraOn ? Icons.videocam : Icons.videocam_off,
+                      color: Colors.white,
+                      size: 30,
+                    ),
+                    onPressed: _toggleCamera,
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.grey.withOpacity(0.5),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );
