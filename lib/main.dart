@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:konektizen/core/config/server_connection_config.dart';
 import 'package:konektizen/core/router/router.dart';
 import 'package:konektizen/features/auth/user_provider.dart';
 import 'package:konektizen/theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+  await ServerConnectionConfig.instance.load();
+
   // Initialize Firebase (will work once google-services.json is added)
   try {
     await Firebase.initializeApp();
@@ -16,7 +18,7 @@ void main() async {
     print('Firebase initialization error: $e');
     // Continue anyway - app will work without Firebase until configured
   }
-  
+
   runApp(const ProviderScope(child: KonektizenApp()));
 }
 

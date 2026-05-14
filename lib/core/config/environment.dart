@@ -1,6 +1,8 @@
 // AUTO-GENERATED from c3_config.yaml
 // DO NOT EDIT MANUALLY - Run: python generate_dart_config.py
 
+import 'package:konektizen/core/config/server_connection_config.dart';
+
 enum Environment { dev, staging, prod }
 
 class EnvironmentConfig {
@@ -18,11 +20,11 @@ class EnvironmentConfig {
   }
 
   /// API base URL (Generated from c3_config.yaml)
-  static const String apiBaseUrl =
-      'http://montalban.c3.aitelligenz.com:5175/api';
+  static String get apiBaseUrl => ServerConnectionConfig.instance.apiBaseUrl;
 
   /// Signaling URL (Generated from c3_config.yaml)
-  static const String signalingUrl = 'http://montalban.c3.aitelligenz.com:5175';
+  static String get signalingUrl =>
+      ServerConnectionConfig.instance.signalingUrl;
 
   /// Request timeout duration
   static const Duration requestTimeout = Duration(seconds: 30);

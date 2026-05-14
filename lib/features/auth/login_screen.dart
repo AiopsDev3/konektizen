@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import 'package:konektizen/core/api/api_service.dart';
+import 'package:konektizen/core/config/server_connection_config.dart';
+import 'package:konektizen/core/widgets/c3_server_dialog.dart';
 import 'package:konektizen/core/widgets/validation_dialog.dart';
 import 'package:konektizen/theme/app_theme.dart';
 
@@ -16,6 +19,62 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   bool _isLoading = false;
+  bool _isTestingServer = false;
+  String? _serverMessage;
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _openConnectionSettings() async {
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (_) =>
+          C3ServerDialog(initialValue: ServerConnectionConfig.instance.origin),
+    );
+    if (selected == null) return;
+
+    setState(() {
+      _isTestingServer = true;
+      _serverMessage = null;
+    });
+
+    try {
+      await ServerConnectionConfig.instance.save(selected);
+      final origin = ServerConnectionConfig.instance.origin;
+      final response = await http
+          .get(Uri.parse('$origin/api/auth/responder-signup/options'))
+          .timeout(const Duration(seconds: 10));
+      if (!mounted) return;
+      setState(() {
+        _serverMessage = response.statusCode == 200
+            ? 'Connected to $origin'
+            : 'Saved, but test returned ${response.statusCode}';
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_serverMessage!)));
+    } on FormatException catch (e) {
+      if (!mounted) return;
+      setState(() => _serverMessage = e.message);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _serverMessage = 'Connection test failed: $e');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_serverMessage!)));
+    } finally {
+      if (mounted) {
+        setState(() => _isTestingServer = false);
+      }
+    }
+  }
 
   Future<void> _login() async {
     // Validate email and password
@@ -123,6 +182,28 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton.icon(
+                  onPressed: _isTestingServer ? null : _openConnectionSettings,
+                  icon: _isTestingServer
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.dns_outlined, size: 18),
+                  label: const Text('C3 Server'),
+                ),
+              ),
+              if (_serverMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _serverMessage!,
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
               const SizedBox(height: 32),
               // Logo
               const Icon(

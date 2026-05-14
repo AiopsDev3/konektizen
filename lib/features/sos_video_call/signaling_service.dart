@@ -22,8 +22,9 @@ class SignalingService {
   Function()? onEndCall;
   Function(Map<String, dynamic>)? onCallDeclined;
 
-  // C3 Command Center IP
-  final String _serverUrl = EnvironmentConfig.signalingUrl;
+  // C3 Command Center URL. Read dynamically so Settings changes apply before
+  // the next socket connection without rebuilding the app.
+  String get _serverUrl => EnvironmentConfig.signalingUrl;
 
   String? _userId;
   String? get currentReporterId => _userId;
