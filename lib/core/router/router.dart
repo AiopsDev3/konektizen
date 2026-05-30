@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:konektizen/features/onboarding/onboarding_screen.dart';
 import 'package:konektizen/features/home/home_screen.dart';
 import 'package:konektizen/features/home/city_updates_screen.dart';
+import 'package:konektizen/features/map/citizen_map_screen.dart';
 import 'package:konektizen/features/shell/shell_screen.dart';
 import 'package:konektizen/features/report/report_description_screen.dart';
 import 'package:konektizen/features/report/report_category_screen.dart';
@@ -24,7 +25,6 @@ import 'package:konektizen/features/profile/edit_profile_screen.dart';
 import 'package:konektizen/core/api/api_service.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
-final _sectionNavigatorKey = GlobalKey<NavigatorState>();
 
 final router = GoRouter(
   navigatorKey: rootNavigatorKey,
@@ -33,23 +33,24 @@ final router = GoRouter(
     // Check if user has a valid token
     final token = await apiService.getToken();
     final isLoggedIn = token != null && token.isNotEmpty;
-    
+
     // Get current location
-    final isOnAuthPage = state.matchedLocation == '/' || 
-                         state.matchedLocation.startsWith('/auth');
-    
+    final isOnAuthPage =
+        state.matchedLocation == '/' ||
+        state.matchedLocation.startsWith('/auth');
+
     // If logged in and on auth page, redirect to home
     if (isLoggedIn && isOnAuthPage) {
-      print('[Router] User logged in, redirecting to /home');
+      debugPrint('[Router] User logged in, redirecting to /home');
       return '/home';
     }
-    
+
     // If not logged in and trying to access protected pages, redirect to onboarding
     if (!isLoggedIn && !isOnAuthPage) {
-      print('[Router] User not logged in, redirecting to /');
+      debugPrint('[Router] User not logged in, redirecting to /');
       return '/';
     }
-    
+
     // No redirect needed
     return null;
   },
@@ -58,7 +59,7 @@ final router = GoRouter(
       path: '/',
       builder: (context, state) => const OnboardingScreen(),
       routes: [
-         GoRoute(
+        GoRoute(
           path: 'auth/login',
           builder: (context, state) => const LoginScreen(),
         ),
@@ -70,9 +71,7 @@ final router = GoRouter(
           path: 'auth/phone-login',
           builder: (context, state) {
             final extra = state.extra as Map<String, dynamic>?;
-            return PhoneLoginScreen(
-              isRegister: extra?['isRegister'] ?? false,
-            );
+            return PhoneLoginScreen(isRegister: extra?['isRegister'] ?? false);
           },
         ),
         GoRoute(
@@ -96,7 +95,7 @@ final router = GoRouter(
             );
           },
         ),
-      ]
+      ],
     ),
     StatefulShellRoute.indexedStack(
       builder: (context, state, navigationShell) {
@@ -113,32 +112,31 @@ final router = GoRouter(
                 GoRoute(
                   path: 'city-updates',
                   parentNavigatorKey: rootNavigatorKey,
-                   builder: (context, state) => const CityUpdatesScreen(),
+                  builder: (context, state) => const CityUpdatesScreen(),
                 ),
               ],
             ),
           ],
         ),
-        // My Cases Branch
+        // Map Branch
         StatefulShellBranch(
           routes: [
             GoRoute(
-              path: '/my-cases',
-              builder: (context, state) => const MyCasesScreen(),
-              routes: [
-                GoRoute(
-                  path: 'detail/:id',
-                  parentNavigatorKey: rootNavigatorKey, // Hide bottom nav on detail
-                  builder: (context, state) {
-                    final id = state.pathParameters['id'] ?? '';
-                    return CaseDetailScreen(caseId: id);
-                  },
-                ),
-              ],
+              path: '/map',
+              builder: (context, state) => const CitizenMapScreen(),
             ),
           ],
         ),
-         // Profile Branch
+        // Weather Advisories Branch
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: '/weather-advisories',
+              builder: (context, state) => const CityUpdatesScreen(),
+            ),
+          ],
+        ),
+        // Profile Branch
         StatefulShellBranch(
           routes: [
             GoRoute(
@@ -149,6 +147,11 @@ final router = GoRouter(
                   path: 'edit',
                   parentNavigatorKey: rootNavigatorKey,
                   builder: (context, state) => const EditProfileScreen(),
+                ),
+                GoRoute(
+                  path: 'my-cases',
+                  parentNavigatorKey: rootNavigatorKey,
+                  builder: (context, state) => const MyCasesScreen(),
                 ),
               ],
             ),
@@ -182,7 +185,7 @@ final router = GoRouter(
             return ReportCategoryScreen(description: description);
           },
         ),
-          GoRoute(
+        GoRoute(
           path: 'evidence',
           builder: (context, state) => const ReportEvidenceScreen(),
         ),
@@ -193,6 +196,20 @@ final router = GoRouter(
         GoRoute(
           path: 'success',
           builder: (context, state) => const SubmissionSuccessScreen(),
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/my-cases',
+      parentNavigatorKey: rootNavigatorKey,
+      builder: (context, state) => const MyCasesScreen(),
+      routes: [
+        GoRoute(
+          path: 'detail/:id',
+          builder: (context, state) {
+            final id = state.pathParameters['id'] ?? '';
+            return CaseDetailScreen(caseId: id);
+          },
         ),
       ],
     ),

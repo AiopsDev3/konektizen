@@ -5,23 +5,14 @@ import 'package:konektizen/theme/app_theme.dart';
 class ShellScreen extends StatelessWidget {
   final StatefulNavigationShell navigationShell;
 
-  const ShellScreen({
-    super.key,
-    required this.navigationShell,
-  });
+  const ShellScreen({super.key, required this.navigationShell});
 
   void _onDestinationSelected(BuildContext context, int index) {
     if (index == 1) {
-      // Index 1 is SOS - Full Screen Action
       context.push('/sos');
     } else {
-      // Map other indices to branches
-      // Nav 0 (Home) -> Branch 0
-      // Nav 2 (Cases) -> Branch 1
-      // Nav 3 (Profile) -> Branch 2
-      int branchIndex = index;
-      if (index > 1) branchIndex = index - 1; // 2->1, 3->2
-      
+      final branchIndex = index == 0 ? 0 : index - 1;
+
       navigationShell.goBranch(
         branchIndex,
         initialLocation: branchIndex == navigationShell.currentIndex,
@@ -32,13 +23,15 @@ class ShellScreen extends StatelessWidget {
   int _getSelectedIndex() {
     // Map branch index to nav index
     // Branch 0 (Home) -> Nav 0
-    // Branch 1 (Cases) -> Nav 2
-    // Branch 2 (Profile) -> Nav 3
+    // Branch 1 (Map) -> Nav 2
+    // Branch 2 (Advisory) -> Nav 3
+    // Branch 3 (Profile) -> Nav 4
     final current = navigationShell.currentIndex;
     if (current == 0) return 0;
     if (current == 1) return 2;
     if (current == 2) return 3;
-    return 0; // Default
+    if (current == 3) return 4;
+    return 0;
   }
 
   @override
@@ -48,7 +41,7 @@ class ShellScreen extends StatelessWidget {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _getSelectedIndex(),
         backgroundColor: Colors.white,
-        indicatorColor: AppTheme.tertiary.withOpacity(0.3),
+        indicatorColor: AppTheme.tertiary.withValues(alpha: 0.3),
         destinations: [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
@@ -66,10 +59,15 @@ class ShellScreen extends StatelessWidget {
             ),
             label: 'SOS',
           ),
-           NavigationDestination(
-            icon: Icon(Icons.assignment_outlined),
-            selectedIcon: Icon(Icons.assignment, color: AppTheme.secondary),
-            label: 'My Cases',
+          NavigationDestination(
+            icon: Icon(Icons.map_outlined),
+            selectedIcon: Icon(Icons.map, color: AppTheme.secondary),
+            label: 'Map',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.campaign_outlined),
+            selectedIcon: Icon(Icons.campaign, color: AppTheme.secondary),
+            label: 'Advisory',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
@@ -77,7 +75,8 @@ class ShellScreen extends StatelessWidget {
             label: 'Profile',
           ),
         ],
-        onDestinationSelected: (index) => _onDestinationSelected(context, index),
+        onDestinationSelected: (index) =>
+            _onDestinationSelected(context, index),
       ),
     );
   }

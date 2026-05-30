@@ -22,6 +22,8 @@ class CommandCenterCallScreen extends StatefulWidget {
 }
 
 class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
+  static const String _defaultOperatorName = 'Command Center SOS';
+
   // --- WebRTC State ---
   final _localRenderer = RTCVideoRenderer();
   final _remoteRenderer = RTCVideoRenderer();
@@ -67,6 +69,20 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
     _remoteRenderer.dispose();
     _disposeWebRTC();
     super.dispose();
+  }
+
+  String get _displayOperatorName {
+    final name = widget.operatorName?.trim();
+    if (name == null || name.isEmpty) {
+      return _defaultOperatorName;
+    }
+
+    final normalized = name.toLowerCase();
+    if (normalized == 'command center' || normalized == 'c3 command center') {
+      return _defaultOperatorName;
+    }
+
+    return name;
   }
 
   // --- WebRTC Logic ---
@@ -470,7 +486,6 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
         // Emit Mic Signal
         SignalingService.instance.sendSignal(
           to: 'reporter', // C3 is calling responder, but usually C3 is responder?? Wait.
-
           // In C3->Konektizen check: C3 is responder? No C3 is Command Center.
           // If this is Konektizen App view for RESPONDERS (e.g. Police App), then they call 'reporter' (Citizen).
           // But wait, the file is `CommandCenterCallScreen`. Is this the "Mobile Agent" app?
@@ -694,7 +709,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.operatorName ?? 'Command Center',
+                  _displayOperatorName,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 20,

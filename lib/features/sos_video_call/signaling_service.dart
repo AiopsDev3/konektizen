@@ -91,7 +91,7 @@ class SignalingService {
           "incoming";
       final room = data['room']?.toString() ?? callId;
       final operatorName =
-          data['operatorName']?.toString() ?? "C3 Command Center";
+          data['operatorName']?.toString() ?? "Command Center SOS";
 
       print('[Signaling] Parsed callId: $callId');
       print('[Signaling] Parsed room: $room');
