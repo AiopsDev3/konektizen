@@ -19,6 +19,8 @@ class CitizenMapLayersMenu extends StatelessWidget {
     required this.showVolcanoes,
     required this.showAqi,
     required this.showSevereWeather,
+    required this.showLocalFacilities,
+    required this.showLocalHazards,
     required this.onToggleFlood,
     required this.onToggleLandslide,
     required this.onToggleQuakes,
@@ -29,6 +31,8 @@ class CitizenMapLayersMenu extends StatelessWidget {
     required this.onToggleVolcanoes,
     required this.onToggleAqi,
     required this.onToggleSevereWeather,
+    required this.onToggleLocalFacilities,
+    required this.onToggleLocalHazards,
   });
 
   final VoidCallback onClose;
@@ -42,6 +46,8 @@ class CitizenMapLayersMenu extends StatelessWidget {
   final bool showVolcanoes;
   final bool showAqi;
   final bool showSevereWeather;
+  final bool showLocalFacilities;
+  final bool showLocalHazards;
   final VoidCallback onToggleFlood;
   final VoidCallback onToggleLandslide;
   final VoidCallback onToggleQuakes;
@@ -52,10 +58,24 @@ class CitizenMapLayersMenu extends StatelessWidget {
   final VoidCallback onToggleVolcanoes;
   final VoidCallback onToggleAqi;
   final VoidCallback onToggleSevereWeather;
+  final VoidCallback onToggleLocalFacilities;
+  final VoidCallback onToggleLocalHazards;
 
   @override
   Widget build(BuildContext context) {
     final options = [
+      _LayerOptionData(
+        Icons.local_hospital_outlined,
+        'C3 Facilities',
+        showLocalFacilities,
+        onToggleLocalFacilities,
+      ),
+      _LayerOptionData(
+        Icons.warning_amber_outlined,
+        'C3 Hazard Areas',
+        showLocalHazards,
+        onToggleLocalHazards,
+      ),
       _LayerOptionData(
         Icons.radar,
         'Rain Radar',

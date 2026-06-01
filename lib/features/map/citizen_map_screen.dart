@@ -34,6 +34,8 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
   bool _showVolcanoes = false;
   bool _showAqi = false;
   bool _showSevereWeather = false;
+  bool _showLocalFacilities = true;
+  bool _showLocalHazards = true;
   bool _showLegendsPanel = false;
 
   final Set<String> _addedSources = {};
@@ -63,6 +65,8 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
           showVolcanoes: _showVolcanoes,
           showAqi: _showAqi,
           showSevereWeather: _showSevereWeather,
+          showLocalFacilities: _showLocalFacilities,
+          showLocalHazards: _showLocalHazards,
         );
       } while (_needsLayerUpdate);
     } finally {
@@ -163,6 +167,16 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
 
   void _toggleSevereWeather() {
     setState(() => _showSevereWeather = !_showSevereWeather);
+    _updateLayerVisibility();
+  }
+
+  void _toggleLocalFacilities() {
+    setState(() => _showLocalFacilities = !_showLocalFacilities);
+    _updateLayerVisibility();
+  }
+
+  void _toggleLocalHazards() {
+    setState(() => _showLocalHazards = !_showLocalHazards);
     _updateLayerVisibility();
   }
 
@@ -273,6 +287,8 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
                 showVolcanoes: _showVolcanoes,
                 showAqi: _showAqi,
                 showSevereWeather: _showSevereWeather,
+                showLocalFacilities: _showLocalFacilities,
+                showLocalHazards: _showLocalHazards,
                 onToggleFlood: _toggleFlood,
                 onToggleLandslide: _toggleLandslide,
                 onToggleQuakes: _toggleQuakes,
@@ -283,6 +299,8 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
                 onToggleVolcanoes: _toggleVolcanoes,
                 onToggleAqi: _toggleAqi,
                 onToggleSevereWeather: _toggleSevereWeather,
+                onToggleLocalFacilities: _toggleLocalFacilities,
+                onToggleLocalHazards: _toggleLocalHazards,
               ),
             ),
           Positioned(

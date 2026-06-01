@@ -24,6 +24,8 @@ class CitizenMapLayerManager {
     required bool showVolcanoes,
     required bool showAqi,
     required bool showSevereWeather,
+    required bool showLocalFacilities,
+    required bool showLocalHazards,
   }) async {
     if (controller == null) return;
 
@@ -471,7 +473,12 @@ class CitizenMapLayerManager {
       await controller?.setLayerVisibility('severe-label', false);
     }
 
-    await syncC3LocalLayers(controller, addedSources);
+    await syncC3LocalLayers(
+      controller,
+      addedSources,
+      showLocalFacilities,
+      showLocalHazards,
+    );
   }
 
   Future<void> _ensureRasterLayer({
