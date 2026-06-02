@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:konektizen/core/api/api_service.dart';
 import 'package:konektizen/core/utils/app_dialogs.dart';
 import 'package:konektizen/features/auth/user_provider.dart';
+import 'package:konektizen/features/verification/barangay_data.dart';
 import 'package:konektizen/theme/app_theme.dart';
 
 class EditProfileScreen extends ConsumerStatefulWidget {
@@ -18,10 +19,12 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
+  final _streetCtrl = TextEditingController();
+  final _barangayCtrl = TextEditingController();
   final _currentPasswordCtrl = TextEditingController();
   final _newPasswordCtrl = TextEditingController();
   final _confirmPasswordCtrl = TextEditingController();
-  
+
   bool _isLoading = false;
   bool _isChangingPassword = false;
 
@@ -31,9 +34,14 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     // Load current user data
     Future.microtask(() {
       final userState = ref.read(userProvider);
-      _nameCtrl.text = userState.fullName ?? '';
-      _emailCtrl.text = userState.email ?? '';
-      _phoneCtrl.text = userState.phoneNumber ?? '';
+      if (!mounted) return;
+      setState(() {
+        _nameCtrl.text = userState.fullName ?? '';
+        _emailCtrl.text = userState.email ?? '';
+        _phoneCtrl.text = userState.phoneNumber ?? '';
+        _streetCtrl.text = userState.residentialAddress ?? '';
+        _barangayCtrl.text = userState.barangay ?? '';
+      });
     });
   }
 
@@ -42,6 +50,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     _nameCtrl.dispose();
     _emailCtrl.dispose();
     _phoneCtrl.dispose();
+    _streetCtrl.dispose();
+    _barangayCtrl.dispose();
     _currentPasswordCtrl.dispose();
     _newPasswordCtrl.dispose();
     _confirmPasswordCtrl.dispose();
@@ -54,11 +64,18 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     setState(() => _isLoading = true);
 
     try {
+      final userState = ref.read(userProvider);
       // Update profile information
       await apiService.updateProfile(
         fullName: _nameCtrl.text,
         email: _emailCtrl.text,
         phoneNumber: _phoneCtrl.text.isEmpty ? null : _phoneCtrl.text,
+        residentialAddress: _streetCtrl.text,
+        barangay: _barangayCtrl.text,
+        municipality: 'Laoag City',
+        province: 'Ilocos Norte',
+        region: 'Region I',
+        reporterId: userState.id,
       );
 
       // If changing password, update it
@@ -99,10 +116,13 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final laoagBarangays = BarangayData.getBarangays('Laoag City');
+    final selectedBarangay = laoagBarangays.contains(_barangayCtrl.text)
+        ? _barangayCtrl.text
+        : null;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Edit Profile'),
-      ),
+      appBar: AppBar(title: const Text('Edit Profile')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Form(
@@ -114,12 +134,12 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
               Text(
                 'Profile Information',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.primary,
-                    ),
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primary,
+                ),
               ),
               const SizedBox(height: 16),
-              
+
               TextFormField(
                 controller: _nameCtrl,
                 decoration: const InputDecoration(
@@ -135,7 +155,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 },
               ),
               const SizedBox(height: 16),
-              
+
               TextFormField(
                 controller: _emailCtrl,
                 decoration: const InputDecoration(
@@ -155,7 +175,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 },
               ),
               const SizedBox(height: 16),
-              
+
               TextFormField(
                 controller: _phoneCtrl,
                 decoration: const InputDecoration(
@@ -165,9 +185,64 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 ),
                 keyboardType: TextInputType.phone,
               ),
-              
+
               const SizedBox(height: 32),
-              
+
+              Text(
+                'Alert Location',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primary,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              DropdownButtonFormField<String>(
+                value: selectedBarangay,
+                isExpanded: true,
+                hint: Text(
+                  _barangayCtrl.text.isNotEmpty
+                      ? _barangayCtrl.text
+                      : 'Select your barangay',
+                  overflow: TextOverflow.ellipsis,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Barangay',
+                  prefixIcon: Icon(Icons.location_city_outlined),
+                  border: OutlineInputBorder(),
+                ),
+                items: laoagBarangays
+                    .map(
+                      (barangay) => DropdownMenuItem(
+                        value: barangay,
+                        child: Text(barangay, overflow: TextOverflow.ellipsis),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  setState(() => _barangayCtrl.text = value ?? '');
+                },
+                validator: (value) {
+                  if ((value == null || value.isEmpty) &&
+                      _barangayCtrl.text.isEmpty) {
+                    return 'Please select your barangay';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              TextFormField(
+                controller: _streetCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Street / House Address (Optional)',
+                  prefixIcon: Icon(Icons.home_outlined),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+
+              const SizedBox(height: 32),
+
               // Change Password Section
               Row(
                 children: [
@@ -175,9 +250,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     child: Text(
                       'Change Password',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.primary,
-                          ),
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.primary,
+                      ),
                     ),
                   ),
                   Switch(
@@ -193,7 +268,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   ),
                 ],
               ),
-              
+
               if (_isChangingPassword) ...[
                 const SizedBox(height: 16),
                 TextFormField(
@@ -205,14 +280,15 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   ),
                   obscureText: true,
                   validator: (value) {
-                    if (_isChangingPassword && (value == null || value.isEmpty)) {
+                    if (_isChangingPassword &&
+                        (value == null || value.isEmpty)) {
                       return 'Please enter your current password';
                     }
                     return null;
                   },
                 ),
                 const SizedBox(height: 16),
-                
+
                 TextFormField(
                   controller: _newPasswordCtrl,
                   decoration: const InputDecoration(
@@ -222,7 +298,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   ),
                   obscureText: true,
                   validator: (value) {
-                    if (_isChangingPassword && (value == null || value.isEmpty)) {
+                    if (_isChangingPassword &&
+                        (value == null || value.isEmpty)) {
                       return 'Please enter a new password';
                     }
                     if (_isChangingPassword && value!.length < 6) {
@@ -232,7 +309,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
-                
+
                 TextFormField(
                   controller: _confirmPasswordCtrl,
                   decoration: const InputDecoration(
@@ -249,9 +326,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   },
                 ),
               ],
-              
+
               const SizedBox(height: 32),
-              
+
               ElevatedButton(
                 onPressed: _isLoading ? null : _saveChanges,
                 style: ElevatedButton.styleFrom(
@@ -268,7 +345,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                           color: Colors.white,
                         ),
                       )
-                    : const Text('Save Changes', style: TextStyle(fontSize: 16)),
+                    : const Text(
+                        'Save Changes',
+                        style: TextStyle(fontSize: 16),
+                      ),
               ),
             ],
           ),

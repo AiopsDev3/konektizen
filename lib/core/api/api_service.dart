@@ -69,6 +69,11 @@ class ApiService {
     String email,
     String password, {
     String? phoneNumber,
+    String? barangay,
+    String? municipality,
+    String? province,
+    String? region,
+    String? residentialAddress,
   }) async {
     try {
       final url = Uri.parse('$baseUrl/reporters/register');
@@ -80,6 +85,15 @@ class ApiService {
         'password': password,
         if (trimmedPhone != null && trimmedPhone.isNotEmpty)
           'phone_number': trimmedPhone,
+        if (barangay != null && barangay.trim().isNotEmpty)
+          'barangay': barangay.trim(),
+        if (municipality != null && municipality.trim().isNotEmpty)
+          'municipality': municipality.trim(),
+        if (province != null && province.trim().isNotEmpty)
+          'province': province.trim(),
+        if (region != null && region.trim().isNotEmpty) 'region': region.trim(),
+        if (residentialAddress != null && residentialAddress.trim().isNotEmpty)
+          'residential_address': residentialAddress.trim(),
       };
       final response = await http
           .post(
@@ -143,34 +157,127 @@ class ApiService {
     required String fullName,
     required String email,
     String? phoneNumber,
+    String? residentialAddress,
+    String? barangay,
+    String? municipality,
+    String? province,
+    String? region,
+    String? reporterId,
   }) async {
     final token = await getToken();
     if (token == null) throw Exception('Not authenticated');
 
     try {
-      final url = Uri.parse('$baseUrl/auth/profile');
-      final response = await http.put(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-          'Bypass-Tunnel-Reminder': 'true',
-        },
-        body: jsonEncode({
-          'fullName': fullName,
-          'email': email,
-          if (phoneNumber != null && phoneNumber.isNotEmpty)
-            'phoneNumber': phoneNumber,
-        }),
+      final payload = _buildProfilePayload(
+        fullName: fullName,
+        email: email,
+        phoneNumber: phoneNumber,
+        residentialAddress: residentialAddress,
+        barangay: barangay,
+        municipality: municipality,
+        province: province,
+        region: region,
       );
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+        'Bypass-Tunnel-Reminder': 'true',
+      };
 
-      if (response.statusCode != 200) {
-        final errorData = jsonDecode(response.body);
-        throw Exception(errorData['error'] ?? 'Failed to update profile');
+      final response = await _putJson(
+        Uri.parse('$baseUrl/reporters/me'),
+        headers,
+        payload,
+      );
+      if (response.statusCode == 200) return;
+
+      final id = reporterId?.trim();
+      final shouldFallback =
+          id != null &&
+          id.isNotEmpty &&
+          (response.statusCode == 404 ||
+              response.statusCode == 405 ||
+              response.statusCode == 501 ||
+              _looksLikeHtml(response.body));
+      if (shouldFallback) {
+        final fallbackResponse = await _putJson(
+          Uri.parse('$baseUrl/reporters/$id'),
+          headers,
+          payload,
+        );
+        if (fallbackResponse.statusCode == 200) return;
+        throw Exception(
+          _responseMessage(
+            fallbackResponse,
+            'Failed to update profile through reporter fallback route',
+          ),
+        );
       }
+
+      throw Exception(_responseMessage(response, 'Failed to update profile'));
     } catch (e) {
       throw Exception('Failed to update profile: $e');
     }
+  }
+
+  Map<String, dynamic> _buildProfilePayload({
+    required String fullName,
+    required String email,
+    String? phoneNumber,
+    String? residentialAddress,
+    String? barangay,
+    String? municipality,
+    String? province,
+    String? region,
+  }) {
+    return {
+      'full_name': fullName.trim(),
+      'email': email.trim(),
+      if (phoneNumber != null && phoneNumber.trim().isNotEmpty)
+        'phone_number': phoneNumber.trim(),
+      'address': {
+        if (residentialAddress != null && residentialAddress.trim().isNotEmpty)
+          'street': residentialAddress.trim(),
+        if (barangay != null && barangay.trim().isNotEmpty)
+          'barangay': barangay.trim(),
+        if (municipality != null && municipality.trim().isNotEmpty)
+          'municipality': municipality.trim(),
+        if (province != null && province.trim().isNotEmpty)
+          'province': province.trim(),
+        if (region != null && region.trim().isNotEmpty) 'region': region.trim(),
+      },
+    };
+  }
+
+  Future<http.Response> _putJson(
+    Uri url,
+    Map<String, String> headers,
+    Map<String, dynamic> payload,
+  ) {
+    return http
+        .put(url, headers: headers, body: jsonEncode(payload))
+        .timeout(EnvironmentConfig.requestTimeout);
+  }
+
+  bool _looksLikeHtml(String body) {
+    final trimmed = body.trimLeft().toLowerCase();
+    return trimmed.startsWith('<!doctype html') || trimmed.startsWith('<html');
+  }
+
+  String _responseMessage(http.Response response, String fallback) {
+    if (_looksLikeHtml(response.body)) {
+      return '$fallback. Server returned an HTML page instead of JSON. '
+          'Please check the server URL or restart the AIOPSYS backend.';
+    }
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        return (decoded['message'] ?? decoded['error'] ?? fallback).toString();
+      }
+    } catch (_) {
+      // Use the plain fallback below.
+    }
+    return '$fallback. Status ${response.statusCode}.';
   }
 
   // Change password

@@ -123,6 +123,32 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       userState.phoneNumber!,
                       style: TextStyle(color: Colors.grey[600]),
                     ),
+                  if (userState.barangay != null &&
+                      userState.barangay!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.location_city_outlined,
+                            size: 16,
+                            color: Colors.grey[600],
+                          ),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              userState.barangay!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.grey[700],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: 24),
 
                   // MOVED: Verification Button to TOP

@@ -7,6 +7,11 @@ class UserState {
   final String? fullName;
   final String? email;
   final String? phoneNumber;
+  final String? residentialAddress;
+  final String? barangay;
+  final String? municipality;
+  final String? province;
+  final String? region;
   final String? role;
   final bool? isVerified;
   final bool phoneVerified;
@@ -19,6 +24,11 @@ class UserState {
     this.fullName,
     this.email,
     this.phoneNumber,
+    this.residentialAddress,
+    this.barangay,
+    this.municipality,
+    this.province,
+    this.region,
     this.role,
     this.isVerified = false,
     this.phoneVerified = false,
@@ -37,6 +47,11 @@ class UserState {
     String? fullName,
     String? email,
     String? phoneNumber,
+    String? residentialAddress,
+    String? barangay,
+    String? municipality,
+    String? province,
+    String? region,
     String? role,
     bool? isVerified,
     bool? phoneVerified,
@@ -50,6 +65,11 @@ class UserState {
       fullName: fullName ?? this.fullName,
       email: email ?? this.email,
       phoneNumber: phoneNumber ?? this.phoneNumber,
+      residentialAddress: residentialAddress ?? this.residentialAddress,
+      barangay: barangay ?? this.barangay,
+      municipality: municipality ?? this.municipality,
+      province: province ?? this.province,
+      region: region ?? this.region,
       role: role ?? this.role,
       isVerified: isVerified ?? this.isVerified,
       phoneVerified: phoneVerified ?? this.phoneVerified,
@@ -79,14 +99,19 @@ class UserNotifier extends StateNotifier<UserState> {
 
     try {
       final userData = await apiService.getCurrentUser();
-      
+
       if (userData != null) {
-        final rawStatus = (userData['verificationStatus'] ??
-                userData['verification_status'] ??
-                'UNVERIFIED')
-            .toString()
-            .toUpperCase();
-        final verified = userData['isVerified'] ??
+        final address = userData['address'] is Map<String, dynamic>
+            ? userData['address'] as Map<String, dynamic>
+            : <String, dynamic>{};
+        final rawStatus =
+            (userData['verificationStatus'] ??
+                    userData['verification_status'] ??
+                    'UNVERIFIED')
+                .toString()
+                .toUpperCase();
+        final verified =
+            userData['isVerified'] ??
             userData['is_verified'] ??
             rawStatus == 'APPROVED';
         state = UserState(
@@ -94,6 +119,14 @@ class UserNotifier extends StateNotifier<UserState> {
           fullName: userData['fullName'] ?? userData['full_name'],
           email: userData['email'],
           phoneNumber: userData['phoneNumber'] ?? userData['phone_number'],
+          residentialAddress:
+              address['street'] ??
+              address['address'] ??
+              userData['residential_address'],
+          barangay: address['barangay'] ?? userData['barangay'],
+          municipality: address['municipality'] ?? userData['municipality'],
+          province: address['province'] ?? userData['province'],
+          region: address['region'] ?? userData['region'],
           role: userData['role'] ?? 'reporter',
           isVerified: verified == true,
           phoneVerified:
@@ -109,10 +142,7 @@ class UserNotifier extends StateNotifier<UserState> {
         );
       }
     } catch (e) {
-      state = state.copyWith(
-        isLoading: false,
-        error: e.toString(),
-      );
+      state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
 

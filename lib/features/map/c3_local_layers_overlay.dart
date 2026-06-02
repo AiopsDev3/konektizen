@@ -11,43 +11,63 @@ Future<void> syncC3LocalLayers(
   bool showHazards,
 ) async {
   if (controller == null) return;
-  if (addedSources.contains('c3-local-facilities-source')) {
-    await _setLocalLayerVisibility(controller, 'facilities', showFacilities);
-    await _setLocalLayerVisibility(controller, 'hazards', showHazards);
-    return;
+
+  Map<String, dynamic>? geoJson;
+
+  Future<void> fetchGeoJsonIfNeeded() async {
+    if (geoJson == null) {
+      try {
+        geoJson = await C3LocalLayersService.fetchGeoJson();
+        await registerC3FacilityMapIcons(controller);
+      } catch (e) {
+        debugPrint('Failed to fetch C3 Local GeoJson: $e');
+      }
+    }
   }
 
-  try {
-    final geoJson = await C3LocalLayersService.fetchGeoJson();
-    debugPrint(
-      'C3 local layers: '
-      '${countC3LocalFeatures(geoJson, 'facility')} facilities, '
-      '${countC3LocalFeatures(geoJson, 'hazard')} hazards',
-    );
-    await registerC3FacilityMapIcons(controller);
-    await _addLocalLayer(
-      controller,
-      sourceId: 'c3-local-facilities-source',
-      pointLayerId: 'c3-local-facilities-points',
-      symbolLayerId: 'c3-local-facilities-symbols',
-      labelLayerId: 'c3-local-facilities-labels',
-      geoJson: filterC3LocalFeatures(geoJson, 'facility'),
-      useImageIcons: true,
-    );
-    await _addLocalLayer(
-      controller,
-      sourceId: 'c3-local-hazards-source',
-      pointLayerId: 'c3-local-hazards-points',
-      symbolLayerId: 'c3-local-hazards-symbols',
-      labelLayerId: 'c3-local-hazards-labels',
-      geoJson: filterC3LocalFeatures(geoJson, 'hazard'),
-    );
-    addedSources.add('c3-local-facilities-source');
-    addedSources.add('c3-local-hazards-source');
-    await _setLocalLayerVisibility(controller, 'facilities', showFacilities);
-    await _setLocalLayerVisibility(controller, 'hazards', showHazards);
-  } catch (error) {
-    debugPrint('C3 local layer fetch failed: $error');
+  // Handle Facilities
+  if (showFacilities) {
+    if (!addedSources.contains('c3-local-facilities-source')) {
+      await fetchGeoJsonIfNeeded();
+      if (geoJson != null) {
+        await _addLocalLayer(
+          controller,
+          sourceId: 'c3-local-facilities-source',
+          pointLayerId: 'c3-local-facilities-points',
+          symbolLayerId: 'c3-local-facilities-symbols',
+          labelLayerId: 'c3-local-facilities-labels',
+          geoJson: filterC3LocalFeatures(geoJson!, 'facility'),
+          useImageIcons: true,
+        );
+        addedSources.add('c3-local-facilities-source');
+      }
+    } else {
+      await _setLocalLayerVisibility(controller, 'facilities', true);
+    }
+  } else if (addedSources.contains('c3-local-facilities-source')) {
+    await _setLocalLayerVisibility(controller, 'facilities', false);
+  }
+
+  // Handle Hazards
+  if (showHazards) {
+    if (!addedSources.contains('c3-local-hazards-source')) {
+      await fetchGeoJsonIfNeeded();
+      if (geoJson != null) {
+        await _addLocalLayer(
+          controller,
+          sourceId: 'c3-local-hazards-source',
+          pointLayerId: 'c3-local-hazards-points',
+          symbolLayerId: 'c3-local-hazards-symbols',
+          labelLayerId: 'c3-local-hazards-labels',
+          geoJson: filterC3LocalFeatures(geoJson!, 'hazard'),
+        );
+        addedSources.add('c3-local-hazards-source');
+      }
+    } else {
+      await _setLocalLayerVisibility(controller, 'hazards', true);
+    }
+  } else if (addedSources.contains('c3-local-hazards-source')) {
+    await _setLocalLayerVisibility(controller, 'hazards', false);
   }
 }
 
@@ -62,12 +82,22 @@ Future<void> _addLocalLayer(
 }) async {
   await controller.addGeoJsonSource(sourceId, geoJson);
   if (useImageIcons) {
+    await controller.addCircleLayer(
+      sourceId,
+      pointLayerId,
+      const CircleLayerProperties(
+        circleColor: '#ffffff',
+        circleRadius: 24,
+        circleOpacity: 0.01,
+        circleStrokeWidth: 0,
+      ),
+    );
     await controller.addSymbolLayer(
       sourceId,
       symbolLayerId,
       const SymbolLayerProperties(
         iconImage: [Expressions.get, 'iconImage'],
-        iconSize: 0.46,
+        iconSize: 0.85,
         iconAllowOverlap: true,
         iconIgnorePlacement: true,
       ),
@@ -102,8 +132,8 @@ Future<void> _addLocalLayer(
     labelLayerId,
     const SymbolLayerProperties(
       textField: [Expressions.get, 'name'],
-      textSize: 11,
-      textOffset: [0, 1.45],
+      textSize: 12,
+      textOffset: [0, 2.0],
       textColor: '#0f172a',
       textHaloColor: '#ffffff',
       textHaloWidth: 1.6,
@@ -127,8 +157,9 @@ Future<void> _setLocalLayerVisibility(
   ]) {
     try {
       await controller.setLayerVisibility(layerId, visible);
-    } catch (_) {
-      // Some layer groups intentionally omit circle layers when image icons are used.
+      debugPrint('Successfully set visibility for $layerId to $visible');
+    } catch (e) {
+      debugPrint('Failed to set visibility for $layerId: $e');
     }
   }
 }

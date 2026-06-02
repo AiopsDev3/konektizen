@@ -1,6 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:konektizen/core/services/location_service.dart';
+import 'package:konektizen/features/map/c3_local_feature_details_sheet.dart';
+import 'package:konektizen/features/map/c3_local_feature_query.dart';
 import 'package:konektizen/features/map/citizen_map_controls.dart';
 import 'package:konektizen/features/map/citizen_map_glass.dart';
 import 'package:konektizen/features/map/citizen_map_style.dart';
@@ -34,13 +38,32 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
   bool _showVolcanoes = false;
   bool _showAqi = false;
   bool _showSevereWeather = false;
-  bool _showLocalFacilities = true;
-  bool _showLocalHazards = true;
+  bool _showLocalFacilities = false;
+  bool _showLocalHazards = false;
   bool _showLegendsPanel = false;
 
   final Set<String> _addedSources = {};
   bool _isUpdatingLayers = false;
   bool _needsLayerUpdate = false;
+  bool _isOpeningC3LocalFeature = false;
+
+  Future<void> _openC3LocalFeatureAt(math.Point point) async {
+    if (_isOpeningC3LocalFeature) return;
+    _isOpeningC3LocalFeature = true;
+    try {
+      final feature = await queryC3LocalFeature(
+        _controller,
+        point,
+        includeFacilities: _showLocalFacilities,
+        includeHazards: _showLocalHazards,
+      );
+      if (feature != null && mounted) {
+        showC3LocalFeatureDetails(context, feature);
+      }
+    } finally {
+      _isOpeningC3LocalFeature = false;
+    }
+  }
 
   Future<void> _updateLayerVisibility() async {
     if (_controller == null) return;
@@ -211,6 +234,14 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
             trackCameraPosition: false,
             onMapCreated: (controller) {
               _controller = controller;
+              controller.onFeatureTapped.add((point, _, _, layerId, _) {
+                if (layerId.startsWith('c3-local-')) {
+                  _openC3LocalFeatureAt(point);
+                }
+              });
+            },
+            onMapClick: (point, latLng) async {
+              await _openC3LocalFeatureAt(point);
             },
             onStyleLoadedCallback: () {
               _addedSources.clear();

@@ -65,23 +65,85 @@ Future<Uint8List> _buildMarkerPng({
   final fillPaint = Paint()..color = color;
   canvas.drawCircle(center, 26, fillPaint);
 
-  final textPainter = TextPainter(
-    text: TextSpan(
-      text: String.fromCharCode(icon.codePoint),
-      style: TextStyle(
-        color: Colors.white,
-        fontSize: 34,
-        fontFamily: icon.fontFamily,
-        package: icon.fontPackage,
-      ),
-    ),
-    textDirection: TextDirection.ltr,
-  )..layout();
+  final iconPaint = Paint()
+    ..color = Colors.white
+    ..style = PaintingStyle.fill;
+    
+  final strokePaint = Paint()
+    ..color = Colors.white
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 3.5
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round;
 
-  textPainter.paint(
-    canvas,
-    center - Offset(textPainter.width / 2, textPainter.height / 2),
-  );
+  if (color == const Color(0xffef4444) || color == const Color(0xff06b6d4)) {
+    // Hospital / Health Center - Cross
+    final w = 6.0;
+    final l = 20.0;
+    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: center, width: w, height: l), const Radius.circular(2)), iconPaint);
+    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: center, width: l, height: w), const Radius.circular(2)), iconPaint);
+  } else if (color == const Color(0xfff97316)) {
+    // Fire Station - Flame
+    final path = Path();
+    path.moveTo(center.dx, center.dy - 12);
+    path.quadraticBezierTo(center.dx + 12, center.dy - 2, center.dx + 10, center.dy + 8);
+    path.arcToPoint(Offset(center.dx - 10, center.dy + 8), radius: const Radius.circular(10), clockwise: false);
+    path.quadraticBezierTo(center.dx - 12, center.dy - 2, center.dx, center.dy - 12);
+    canvas.drawPath(path, iconPaint);
+  } else if (color == const Color(0xff2563eb)) {
+    // Police Station - Shield
+    final path = Path();
+    path.moveTo(center.dx, center.dy - 14);
+    path.lineTo(center.dx + 12, center.dy - 10);
+    path.lineTo(center.dx + 12, center.dy + 2);
+    path.quadraticBezierTo(center.dx + 12, center.dy + 12, center.dx, center.dy + 16);
+    path.quadraticBezierTo(center.dx - 12, center.dy + 12, center.dx - 12, center.dy + 2);
+    path.lineTo(center.dx - 12, center.dy - 10);
+    path.close();
+    canvas.drawPath(path, strokePaint..style = PaintingStyle.stroke..strokeWidth = 3);
+    canvas.drawCircle(center.translate(0, 2), 3, iconPaint);
+  } else if (color == const Color(0xff22c55e)) {
+    // Evacuation Center - House/Shelter
+    final path = Path();
+    path.moveTo(center.dx, center.dy - 12);
+    path.lineTo(center.dx + 14, center.dy);
+    path.lineTo(center.dx + 10, center.dy);
+    path.lineTo(center.dx + 10, center.dy + 12);
+    path.lineTo(center.dx - 10, center.dy + 12);
+    path.lineTo(center.dx - 10, center.dy);
+    path.lineTo(center.dx - 14, center.dy);
+    path.close();
+    canvas.drawPath(path, iconPaint);
+  } else if (color == const Color(0xff8b5cf6)) {
+    // Command Center - Radar / Node
+    canvas.drawCircle(center, 4, iconPaint);
+    canvas.drawCircle(center, 10, strokePaint..strokeWidth = 2.5);
+    canvas.drawCircle(center, 16, strokePaint..strokeWidth = 2);
+  } else if (color == const Color(0xff64748b)) {
+    // Warehouse - Box/Building
+    final path = Path();
+    path.moveTo(center.dx - 12, center.dy + 10);
+    path.lineTo(center.dx - 12, center.dy - 6);
+    path.lineTo(center.dx, center.dy - 12);
+    path.lineTo(center.dx + 12, center.dy - 6);
+    path.lineTo(center.dx + 12, center.dy + 10);
+    path.close();
+    canvas.drawPath(path, strokePaint..style = PaintingStyle.stroke..strokeWidth = 3.5);
+    canvas.drawLine(Offset(center.dx - 4, center.dy + 10), Offset(center.dx - 4, center.dy + 2), strokePaint..strokeWidth = 2);
+    canvas.drawLine(Offset(center.dx + 4, center.dy + 10), Offset(center.dx + 4, center.dy + 2), strokePaint..strokeWidth = 2);
+    canvas.drawLine(Offset(center.dx - 4, center.dy + 2), Offset(center.dx + 4, center.dy + 2), strokePaint..strokeWidth = 2);
+  } else if (color == const Color(0xff0ea5e9)) {
+    // Water Source - Drop
+    final path = Path();
+    path.moveTo(center.dx, center.dy - 14);
+    path.quadraticBezierTo(center.dx + 10, center.dy - 2, center.dx + 10, center.dy + 6);
+    path.arcToPoint(Offset(center.dx - 10, center.dy + 6), radius: const Radius.circular(10), clockwise: false);
+    path.quadraticBezierTo(center.dx - 10, center.dy - 2, center.dx, center.dy - 14);
+    canvas.drawPath(path, iconPaint);
+  } else {
+    // Fallback simple circle
+    canvas.drawCircle(center, 10, iconPaint);
+  }
 
   final image = await recorder.endRecording().toImage(
     size.toInt(),
