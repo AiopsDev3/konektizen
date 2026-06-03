@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:konektizen/core/api/api_service.dart';
@@ -21,6 +22,14 @@ class WeatherNotificationListener extends ConsumerStatefulWidget {
 
 class _WeatherNotificationListenerState
     extends ConsumerState<WeatherNotificationListener> {
+  static const _channel = AndroidNotificationChannel(
+    'weather_advisory_channel',
+    'Weather Advisories',
+    description: 'City and barangay weather advisories from C3.',
+    importance: Importance.high,
+  );
+
+  final _localNotifications = FlutterLocalNotificationsPlugin();
   final _storage = const FlutterSecureStorage();
   final _service = const WeatherAdvisoryService();
   StreamSubscription<String>? _tokenSubscription;
@@ -34,6 +43,7 @@ class _WeatherNotificationListenerState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _setupLocalNotifications();
       _setupForegroundMessages();
       _registerPushWhenSignedIn();
       _showLatestHighPriorityAdvisory();
@@ -74,6 +84,7 @@ class _WeatherNotificationListenerState
             message.notification?.body ??
             message.data['body'] ??
             'C3 posted a new weather update.';
+        _showPhoneNotification(title.toString(), body.toString(), message);
         _showSnack(title.toString(), body.toString());
       });
       _tokenSubscription = FirebaseMessaging.instance.onTokenRefresh.listen(
@@ -81,6 +92,28 @@ class _WeatherNotificationListenerState
       );
     } catch (_) {
       // Firebase may be disabled on local builds.
+    }
+  }
+
+  Future<void> _setupLocalNotifications() async {
+    try {
+      const androidSettings = AndroidInitializationSettings(
+        '@mipmap/ic_launcher',
+      );
+      const initSettings = InitializationSettings(android: androidSettings);
+      await _localNotifications.initialize(initSettings);
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.createNotificationChannel(_channel);
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.requestNotificationsPermission();
+    } catch (_) {
+      // Local notification support is best-effort; FCM background alerts still work.
     }
   }
 
@@ -139,6 +172,33 @@ class _WeatherNotificationListenerState
   void _showSnack(String title, String body) {
     if (!mounted) return;
     showWeatherSnackBar(context, title: title, body: body, isAlert: true);
+  }
+
+  Future<void> _showPhoneNotification(
+    String title,
+    String body,
+    RemoteMessage message,
+  ) async {
+    try {
+      await _localNotifications.show(
+        message.hashCode,
+        title,
+        body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            _channel.id,
+            _channel.name,
+            channelDescription: _channel.description,
+            importance: Importance.high,
+            priority: Priority.high,
+            icon: '@mipmap/ic_launcher',
+          ),
+        ),
+        payload: message.data['signalId']?.toString(),
+      );
+    } catch (_) {
+      // Keep the app experience uninterrupted if the OS blocks local notifications.
+    }
   }
 }
 

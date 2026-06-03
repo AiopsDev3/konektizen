@@ -71,6 +71,7 @@ dependencies:
   chewie: ^1.13.0
   flutter_facebook_auth: ^7.1.5
   url_launcher: ^6.3.0
+  flutter_local_notifications: ^18.0.1
 
 dev_dependencies:
   flutter_test:
