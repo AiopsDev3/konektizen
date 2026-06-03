@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:konektizen/core/localization/app_localizations.dart';
 import 'package:konektizen/theme/app_theme.dart';
 
-class ShellScreen extends StatelessWidget {
+class ShellScreen extends ConsumerWidget {
   final StatefulNavigationShell navigationShell;
 
   const ShellScreen({super.key, required this.navigationShell});
@@ -35,7 +37,9 @@ class ShellScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = ref.watch(appStringsProvider);
+
     return Scaffold(
       body: navigationShell,
       bottomNavigationBar: NavigationBar(
@@ -46,7 +50,7 @@ class ShellScreen extends StatelessWidget {
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home, color: AppTheme.secondary),
-            label: 'Home',
+            label: t.text('nav.home'),
           ),
           NavigationDestination(
             icon: Container(
@@ -57,22 +61,22 @@ class ShellScreen extends StatelessWidget {
               ),
               child: const Icon(Icons.emergency, color: Colors.white, size: 24),
             ),
-            label: 'SOS',
+            label: t.text('nav.sos'),
           ),
           NavigationDestination(
             icon: Icon(Icons.map_outlined),
             selectedIcon: Icon(Icons.map, color: AppTheme.secondary),
-            label: 'Map',
+            label: t.text('nav.map'),
           ),
           NavigationDestination(
             icon: Icon(Icons.campaign_outlined),
             selectedIcon: Icon(Icons.campaign, color: AppTheme.secondary),
-            label: 'Advisory',
+            label: t.text('nav.advisory'),
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
             selectedIcon: Icon(Icons.person, color: AppTheme.secondary),
-            label: 'Profile',
+            label: t.text('nav.profile'),
           ),
         ],
         onDestinationSelected: (index) =>

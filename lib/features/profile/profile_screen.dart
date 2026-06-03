@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:konektizen/core/localization/app_language.dart';
+import 'package:konektizen/core/localization/app_localizations.dart';
 import 'package:konektizen/features/auth/user_provider.dart';
 import 'package:konektizen/features/profile/profile_setting_item.dart';
 import 'package:konektizen/theme/app_theme.dart';
@@ -28,9 +30,70 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     return false;
   }
 
+  void _openLanguageSheet(
+    BuildContext context,
+    AppStrings t,
+    AppLanguage selectedLanguage,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  t.text('profile.chooseLanguage'),
+                  style: Theme.of(sheetContext).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...AppLanguage.values.map((language) {
+                  final isSelected = language == selectedLanguage;
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      Icons.translate,
+                      color: isSelected ? AppTheme.primary : Colors.grey,
+                    ),
+                    title: Text(language.nativeLabel),
+                    subtitle: Text(language.label),
+                    trailing: isSelected
+                        ? const Icon(
+                            Icons.check_circle,
+                            color: AppTheme.primary,
+                          )
+                        : null,
+                    onTap: () async {
+                      await ref
+                          .read(appLanguageProvider.notifier)
+                          .setLanguage(language);
+                      if (sheetContext.mounted) {
+                        Navigator.of(sheetContext).pop();
+                      }
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final userState = ref.watch(userProvider);
+    final t = ref.watch(appStringsProvider);
+    final selectedLanguage = ref.watch(appLanguageProvider);
 
     // Determine display name: Use fullName if valid and NOT a phone number
     String displayName = 'User';
@@ -41,7 +104,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: AppBar(title: Text(t.text('profile.title'))),
       body: userState.isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -95,10 +158,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   // Verification Status Text
                   Text(
                     (userState.isVerified ?? false)
-                        ? 'Verified Citizen'
+                        ? t.text('profile.verified')
                         : (userState.verificationStatus == 'PENDING'
-                              ? 'Verification Pending'
-                              : 'Not Verified'),
+                              ? t.text('profile.pending')
+                              : t.text('profile.notVerified')),
                     style: TextStyle(
                       color: (userState.isVerified ?? false)
                           ? Colors.blue
@@ -166,16 +229,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           Icons.verified_user,
                           color: Colors.blue,
                         ),
-                        title: const Text(
-                          'Verify Your Account',
-                          style: TextStyle(
+                        title: Text(
+                          t.text('profile.verifyAccount'),
+                          style: const TextStyle(
                             color: Colors.blue,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        subtitle: const Text(
-                          'Get verified to help your barangay.',
-                          style: TextStyle(
+                        subtitle: Text(
+                          t.text('profile.verifySubtitle'),
+                          style: const TextStyle(
                             color: Colors.blueGrey,
                             fontSize: 12,
                           ),
@@ -196,21 +259,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         borderRadius: BorderRadius.circular(12),
                         side: BorderSide(color: Colors.orange.shade200),
                       ),
-                      child: const ListTile(
-                        leading: Icon(
+                      child: ListTile(
+                        leading: const Icon(
                           Icons.hourglass_empty,
                           color: Colors.orange,
                         ),
                         title: Text(
-                          'Verification In Progress',
-                          style: TextStyle(
+                          t.text('profile.verificationProgress'),
+                          style: const TextStyle(
                             color: Colors.orange,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         subtitle: Text(
-                          'We are checking your documents.',
-                          style: TextStyle(color: Colors.orangeAccent),
+                          t.text('profile.verificationProgressSubtitle'),
+                          style: const TextStyle(color: Colors.orangeAccent),
                         ),
                       ),
                     ),
@@ -219,31 +282,34 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
                   // NEW: Edit Profile Button
                   ProfileSettingItem(
-                    title: 'Edit Profile',
+                    title: t.text('profile.edit'),
                     icon: Icons.edit_outlined,
                     onTap: () => context.push('/profile/edit'),
                   ),
                   ProfileSettingItem(
-                    title: 'My Cases',
+                    title: t.text('profile.myCases'),
                     icon: Icons.assignment_outlined,
                     onTap: () => context.push('/profile/my-cases'),
                   ),
 
                   // REMOVED: Notifications
-                  const ProfileSettingItem(
-                    title: 'Language',
+                  ProfileSettingItem(
+                    title: t.text('profile.language'),
                     icon: Icons.language,
+                    subtitle: selectedLanguage.nativeLabel,
+                    onTap: () =>
+                        _openLanguageSheet(context, t, selectedLanguage),
                   ),
-                  const ProfileSettingItem(
-                    title: 'Accessibility',
+                  ProfileSettingItem(
+                    title: t.text('profile.accessibility'),
                     icon: Icons.accessibility_new,
                   ),
-                  const ProfileSettingItem(
-                    title: 'Help & Support',
+                  ProfileSettingItem(
+                    title: t.text('profile.help'),
                     icon: Icons.help_outline,
                   ),
-                  const ProfileSettingItem(
-                    title: 'About KONEKTIZEN',
+                  ProfileSettingItem(
+                    title: t.text('profile.about'),
                     icon: Icons.info_outline,
                   ),
 
@@ -256,7 +322,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         context.go('/auth/login');
                       }
                     },
-                    child: const Text('Log Out'),
+                    child: Text(t.text('profile.logout')),
                   ),
                 ],
               ),

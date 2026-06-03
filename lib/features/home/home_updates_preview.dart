@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:konektizen/core/localization/app_localizations.dart';
 import 'package:konektizen/features/home/city_update_link.dart';
 import 'package:konektizen/features/home/city_update_sources.dart';
 import 'package:konektizen/features/weather/weather_advisory_card.dart';
@@ -12,6 +13,7 @@ class HomeUpdatesPreview extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final advisories = ref.watch(weatherAdvisoriesProvider);
+    final t = ref.watch(appStringsProvider);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
@@ -19,7 +21,7 @@ class HomeUpdatesPreview extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Alerts at Balita',
+            t.text('home.alertsNews'),
             style: Theme.of(
               context,
             ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
@@ -28,13 +30,13 @@ class HomeUpdatesPreview extends ConsumerWidget {
           advisories.when(
             loading: () => const _LoadingBox(),
             error: (error, stackTrace) => _SourceList(
-              title: 'Alerts & Notifications',
+              title: t.text('home.alertsNotifications'),
               items: alertNotificationLinks,
             ),
             data: (items) {
               if (items.isEmpty) {
                 return _SourceList(
-                  title: 'Alerts & Notifications',
+                  title: t.text('home.alertsNotifications'),
                   items: alertNotificationLinks,
                 );
               }
@@ -52,7 +54,7 @@ class HomeUpdatesPreview extends ConsumerWidget {
             },
           ),
           const SizedBox(height: 8),
-          _SourceList(title: 'News Sources', items: cityNewsLinks),
+          _SourceList(title: t.text('home.newsSources'), items: cityNewsLinks),
         ],
       ),
     );

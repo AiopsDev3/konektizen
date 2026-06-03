@@ -6,11 +6,15 @@ class ProfileSettingItem extends StatelessWidget {
     super.key,
     required this.title,
     required this.icon,
+    this.subtitle,
+    this.trailing,
     this.onTap,
   });
 
   final String title;
   final IconData icon;
+  final String? subtitle;
+  final Widget? trailing;
   final VoidCallback? onTap;
 
   @override
@@ -24,7 +28,8 @@ class ProfileSettingItem extends StatelessWidget {
       child: ListTile(
         leading: Icon(icon, color: AppTheme.primary),
         title: Text(title),
-        trailing: const Icon(Icons.chevron_right),
+        subtitle: subtitle == null ? null : Text(subtitle!),
+        trailing: trailing ?? const Icon(Icons.chevron_right),
         onTap: onTap,
       ),
     );

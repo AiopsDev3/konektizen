@@ -1,46 +1,49 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:konektizen/core/localization/app_localizations.dart';
 import 'package:konektizen/theme/app_theme.dart';
 
-class HomeQuickActions extends StatelessWidget {
+class HomeQuickActions extends ConsumerWidget {
   const HomeQuickActions({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = ref.watch(appStringsProvider);
     final categories = [
       {
         'icon': Icons.delete_outline,
-        'label': 'Basura',
+        'label': t.text('home.category.garbage'),
         'category_key': 'BASURA',
         'color': AppTheme.secondary,
       },
       {
         'icon': Icons.add_road,
-        'label': 'Kalsada',
+        'label': t.text('home.category.road'),
         'category_key': 'KALSADA',
         'color': AppTheme.primary,
       },
       {
         'icon': Icons.water_drop_outlined,
-        'label': 'Pagbaha',
+        'label': t.text('home.category.flood'),
         'category_key': 'PAGBAHA',
         'color': Colors.blue,
       },
       {
         'icon': Icons.lightbulb_outline,
-        'label': 'Ilaw sa Kalye',
+        'label': t.text('home.category.streetLight'),
         'category_key': 'ILAW_SA_KALYE',
         'color': AppTheme.tertiary,
       },
       {
         'icon': Icons.traffic,
-        'label': 'Trapiko',
+        'label': t.text('home.category.traffic'),
         'category_key': 'TRAPIKO',
         'color': Colors.red,
       },
       {
         'icon': Icons.assignment_add,
-        'label': 'Mag-ulat',
+        'label': t.text('home.category.report'),
         'category_key': 'IBA_PA',
         'color': Colors.purple,
         'isReport': true,
@@ -53,7 +56,7 @@ class HomeQuickActions extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Magsumbong',
+            t.text('home.quickReport'),
             style: Theme.of(
               context,
             ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:konektizen/core/localization/app_localizations.dart';
 import 'package:konektizen/features/cases/cases_provider.dart';
 import 'package:konektizen/features/cases/case_model.dart';
 import 'package:konektizen/theme/app_theme.dart';
@@ -11,6 +12,7 @@ class HomeActiveReports extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final allCases = ref.watch(caseListProvider);
+    final t = ref.watch(appStringsProvider);
     final activeCases = allCases
         .where((c) => c.status != CaseStatus.resolved)
         .toList();
@@ -25,7 +27,7 @@ class HomeActiveReports extends ConsumerWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Aktibong mga Report',
+                t.text('home.activeReports'),
                 style: Theme.of(
                   context,
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
@@ -36,7 +38,7 @@ class HomeActiveReports extends ConsumerWidget {
                     StatefulNavigationShell.of(context).goBranch(1);
                   },
                   child: Text(
-                    'Tingnan Lahat',
+                    t.text('home.viewAll'),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: AppTheme.primary,
                       fontWeight: FontWeight.bold,
@@ -47,7 +49,7 @@ class HomeActiveReports extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           if (recentCases.isEmpty)
-            _buildEmptyState(context)
+            _buildEmptyState(context, t)
           else
             Column(
               children: recentCases
@@ -59,7 +61,7 @@ class HomeActiveReports extends ConsumerWidget {
     );
   }
 
-  Widget _buildEmptyState(BuildContext context) {
+  Widget _buildEmptyState(BuildContext context, AppStrings t) {
     return Container(
       padding: const EdgeInsets.all(24),
       width: double.infinity,
@@ -77,7 +79,7 @@ class HomeActiveReports extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'Walang aktibong report',
+            t.text('home.noActiveReports'),
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(color: Colors.grey[500]),
@@ -86,7 +88,7 @@ class HomeActiveReports extends ConsumerWidget {
             onPressed: () {
               StatefulNavigationShell.of(context).goBranch(1);
             },
-            child: const Text('Suriin ang History'),
+            child: Text(t.text('home.checkHistory')),
           ),
         ],
       ),
