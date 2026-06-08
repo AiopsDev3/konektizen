@@ -12,7 +12,8 @@ List<C3DetailRow> c3FeatureDetailRows(
   Map<String, dynamic> properties,
   dynamic geometry,
 ) {
-  final coordinates = c3CoordinatesLabel(geometry);
+  final coordinates =
+      c3PropertyCoordinatesLabel(properties) ?? c3CoordinatesLabel(geometry);
   return [
     (label: 'Status', value: c3Read(properties, 'status')),
     (label: 'Severity', value: c3Read(properties, 'severity')),
@@ -26,6 +27,19 @@ List<C3DetailRow> c3FeatureDetailRows(
     (label: 'End Date', value: c3Read(properties, 'endDate')),
     if (coordinates.isNotEmpty) (label: 'Coordinates', value: coordinates),
   ].where((row) => row.value.trim().isNotEmpty).toList();
+}
+
+String? c3PropertyCoordinatesLabel(Map<String, dynamic> properties) {
+  final lat =
+      _toDouble(properties['centerLat']) ??
+      _toDouble(properties['latitude']) ??
+      _toDouble(properties['lat']);
+  final lng =
+      _toDouble(properties['centerLng']) ??
+      _toDouble(properties['longitude']) ??
+      _toDouble(properties['lng']);
+  if (lat == null || lng == null) return null;
+  return '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
 }
 
 String c3Read(
@@ -45,4 +59,10 @@ String c3CoordinatesLabel(dynamic geometry) {
   final lat = double.tryParse(coordinates[1].toString());
   if (lat == null || lng == null) return '';
   return '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
+}
+
+double? _toDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  if (value == null) return null;
+  return double.tryParse(value.toString());
 }

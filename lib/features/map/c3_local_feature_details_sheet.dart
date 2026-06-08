@@ -32,7 +32,7 @@ void showC3LocalFeatureDetails(
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _featureBadge(kind.isEmpty ? 'C3' : kind),
+                _featureBadge(kind.isEmpty ? 'MAP' : kind),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(

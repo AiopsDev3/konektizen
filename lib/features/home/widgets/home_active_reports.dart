@@ -35,7 +35,7 @@ class HomeActiveReports extends ConsumerWidget {
               if (activeCases.isNotEmpty)
                 TextButton(
                   onPressed: () {
-                    StatefulNavigationShell.of(context).goBranch(1);
+                    context.push('/my-cases');
                   },
                   child: Text(
                     t.text('home.viewAll'),
@@ -86,7 +86,7 @@ class HomeActiveReports extends ConsumerWidget {
           ),
           TextButton(
             onPressed: () {
-              StatefulNavigationShell.of(context).goBranch(1);
+              context.push('/my-cases');
             },
             child: Text(t.text('home.checkHistory')),
           ),

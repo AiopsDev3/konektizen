@@ -11,24 +11,24 @@ class CitizenMapLayersMenu extends StatelessWidget {
     required this.onClose,
     required this.showFlood,
     required this.showLandslide,
+    required this.showStormSurge,
+    required this.showTyphoon,
     required this.showQuakes,
-    required this.showFire,
     required this.showRainRadar,
     required this.showBarangayRain,
     required this.showFaults,
-    required this.showVolcanoes,
     required this.showAqi,
     required this.showSevereWeather,
     required this.showLocalFacilities,
     required this.showLocalHazards,
     required this.onToggleFlood,
     required this.onToggleLandslide,
+    required this.onToggleStormSurge,
+    required this.onToggleTyphoon,
     required this.onToggleQuakes,
-    required this.onToggleFire,
     required this.onToggleRainRadar,
     required this.onToggleBarangayRain,
     required this.onToggleFaults,
-    required this.onToggleVolcanoes,
     required this.onToggleAqi,
     required this.onToggleSevereWeather,
     required this.onToggleLocalFacilities,
@@ -38,24 +38,24 @@ class CitizenMapLayersMenu extends StatelessWidget {
   final VoidCallback onClose;
   final bool showFlood;
   final bool showLandslide;
+  final bool showStormSurge;
+  final bool showTyphoon;
   final bool showQuakes;
-  final bool showFire;
   final bool showRainRadar;
   final bool showBarangayRain;
   final bool showFaults;
-  final bool showVolcanoes;
   final bool showAqi;
   final bool showSevereWeather;
   final bool showLocalFacilities;
   final bool showLocalHazards;
   final VoidCallback onToggleFlood;
   final VoidCallback onToggleLandslide;
+  final VoidCallback onToggleStormSurge;
+  final VoidCallback onToggleTyphoon;
   final VoidCallback onToggleQuakes;
-  final VoidCallback onToggleFire;
   final VoidCallback onToggleRainRadar;
   final VoidCallback onToggleBarangayRain;
   final VoidCallback onToggleFaults;
-  final VoidCallback onToggleVolcanoes;
   final VoidCallback onToggleAqi;
   final VoidCallback onToggleSevereWeather;
   final VoidCallback onToggleLocalFacilities;
@@ -66,13 +66,13 @@ class CitizenMapLayersMenu extends StatelessWidget {
     final options = [
       _LayerOptionData(
         Icons.local_hospital_outlined,
-        'C3 Facilities',
+        'Facilities',
         showLocalFacilities,
         onToggleLocalFacilities,
       ),
       _LayerOptionData(
         Icons.warning_amber_outlined,
-        'C3 Hazard Areas',
+        'Hazard Areas',
         showLocalHazards,
         onToggleLocalHazards,
       ),
@@ -101,6 +101,18 @@ class CitizenMapLayersMenu extends StatelessWidget {
         onToggleLandslide,
       ),
       _LayerOptionData(
+        Icons.waves,
+        'Storm Surge',
+        showStormSurge,
+        onToggleStormSurge,
+      ),
+      _LayerOptionData(
+        Icons.cyclone_outlined,
+        'Typhoon',
+        showTyphoon,
+        onToggleTyphoon,
+      ),
+      _LayerOptionData(
         Icons.timeline,
         'Active Faults',
         showFaults,
@@ -112,19 +124,7 @@ class CitizenMapLayersMenu extends StatelessWidget {
         showQuakes,
         onToggleQuakes,
       ),
-      _LayerOptionData(
-        Icons.local_fire_department_outlined,
-        'Fire Status',
-        showFire,
-        onToggleFire,
-      ),
       _LayerOptionData(Icons.air, 'Air Quality', showAqi, onToggleAqi),
-      _LayerOptionData(
-        Icons.volcano_outlined,
-        'Tectonic Boundary',
-        showVolcanoes,
-        onToggleVolcanoes,
-      ),
       _LayerOptionData(
         Icons.warning_amber,
         'Severe Weather',

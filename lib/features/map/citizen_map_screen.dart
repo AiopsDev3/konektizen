@@ -2,9 +2,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
-import 'package:konektizen/core/services/location_service.dart';
 import 'package:konektizen/features/map/c3_local_feature_details_sheet.dart';
 import 'package:konektizen/features/map/c3_local_feature_query.dart';
+import 'package:konektizen/features/map/c3_local_layers_service.dart';
+import 'package:konektizen/features/map/c3_local_marker_overlay.dart';
 import 'package:konektizen/features/map/citizen_map_controls.dart';
 import 'package:konektizen/features/map/citizen_map_glass.dart';
 import 'package:konektizen/features/map/citizen_map_style.dart';
@@ -21,33 +22,44 @@ class CitizenMapScreen extends StatefulWidget {
 
 class _CitizenMapScreenState extends State<CitizenMapScreen> {
   static const _laoagCenter = LatLng(18.1960, 120.5989);
+  static const _defaultLaoagZoom = 12.75;
+  static const _cityLabelSourceId = 'konektizen-city-label-source';
+  static const _cityLabelLayerId = 'konektizen-city-label';
 
-  final _locationService = LocationService();
   MapLibreMapController? _controller;
-  bool _locating = false;
   bool _showLayersMenu = false;
   bool _isSearching = false;
 
   bool _showFlood = false;
   bool _showLandslide = false;
+  bool _showStormSurge = false;
+  bool _showTyphoon = false;
   bool _showQuakes = false;
-  bool _showFire = false;
   bool _showRainRadar = false;
   bool _showBarangayRain = false;
   bool _showFaults = false;
-  bool _showVolcanoes = false;
   bool _showAqi = false;
   bool _showSevereWeather = false;
   bool _showLocalFacilities = false;
   bool _showLocalHazards = false;
   bool _showLegendsPanel = false;
+  int _layerOpacityPercent = 100;
+  List<int> _floodReturnPeriods = [5, 25];
+  List<int> _stormSurgeAdvisories = [1, 2, 3, 4];
 
   final Set<String> _addedSources = {};
   bool _isUpdatingLayers = false;
   bool _needsLayerUpdate = false;
   bool _isOpeningC3LocalFeature = false;
+  String? _layerLoadingMessage;
+  List<C3LocalOverlayMarker> _c3LocalMarkers = [];
+  List<math.Point<num>> _c3LocalMarkerPositions = [];
+  bool _isUpdatingC3LocalMarkerPositions = false;
+  DateTime _lastC3LocalMarkerPositionUpdate =
+      DateTime.fromMillisecondsSinceEpoch(0);
 
   Future<void> _openC3LocalFeatureAt(math.Point point) async {
+    if (!_showLocalFacilities && !_showLocalHazards) return;
     if (_isOpeningC3LocalFeature) return;
     _isOpeningC3LocalFeature = true;
     try {
@@ -65,8 +77,11 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
     }
   }
 
-  Future<void> _updateLayerVisibility() async {
+  Future<void> _updateLayerVisibility({String? loadingMessage}) async {
     if (_controller == null) return;
+    if (loadingMessage != null && mounted) {
+      setState(() => _layerLoadingMessage = loadingMessage);
+    }
     if (_isUpdatingLayers) {
       _needsLayerUpdate = true;
       return;
@@ -79,56 +94,145 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
         final layerManager = CitizenMapLayerManager(_controller, _addedSources);
         await layerManager.updateLayers(
           showFlood: _showFlood,
+          floodReturnPeriods: _floodReturnPeriods,
           showLandslide: _showLandslide,
+          showStormSurge: _showStormSurge,
+          stormSurgeAdvisories: _stormSurgeAdvisories,
+          showTyphoon: _showTyphoon,
           showQuakes: _showQuakes,
-          showFire: _showFire,
           showRainRadar: _showRainRadar,
           showBarangayRain: _showBarangayRain,
           showFaults: _showFaults,
-          showVolcanoes: _showVolcanoes,
           showAqi: _showAqi,
           showSevereWeather: _showSevereWeather,
           showLocalFacilities: _showLocalFacilities,
           showLocalHazards: _showLocalHazards,
+          layerOpacity: _layerOpacityPercent / 100,
         );
       } while (_needsLayerUpdate);
+      await _refreshC3LocalMarkers();
     } finally {
       _isUpdatingLayers = false;
+      if (mounted && _layerLoadingMessage != null) {
+        setState(() => _layerLoadingMessage = null);
+      }
     }
   }
 
-  Future<void> _goToMyLocation() async {
-    if (_locating) return;
-    setState(() => _locating = true);
+  Future<void> _refreshC3LocalMarkers() async {
+    if (!_showLocalFacilities && !_showLocalHazards) {
+      if (_c3LocalMarkers.isNotEmpty && mounted) {
+        setState(() {
+          _c3LocalMarkers = [];
+          _c3LocalMarkerPositions = [];
+        });
+      }
+      return;
+    }
+
     try {
-      final position = await _locationService.getCurrentLocation();
-      final target = position == null
-          ? _laoagCenter
-          : LatLng(position.latitude, position.longitude);
-      await _controller?.animateCamera(
-        CameraUpdate.newLatLngZoom(target, position == null ? 13.6 : 16.5),
+      final geoJson = await C3LocalLayersService.fetchGeoJson();
+      final markers = buildC3LocalOverlayMarkers(
+        geoJson,
+        includeFacilities: _showLocalFacilities,
+        includeHazards: _showLocalHazards,
       );
+      if (!mounted) return;
+      setState(() {
+        _c3LocalMarkers = markers;
+        _c3LocalMarkerPositions = List<math.Point<num>>.filled(
+          markers.length,
+          const math.Point<num>(-1000, -1000),
+        );
+      });
+      await _updateC3LocalMarkerPositions(force: true);
+      debugPrint('C3 local Flutter markers: ${markers.length}');
+    } catch (error) {
+      debugPrint('Failed to refresh C3 local Flutter markers: $error');
+      if (mounted) {
+        setState(() {
+          _c3LocalMarkers = [];
+          _c3LocalMarkerPositions = [];
+        });
+      }
+    }
+  }
+
+  Future<void> _updateC3LocalMarkerPositions({bool force = false}) async {
+    final controller = _controller;
+    if (controller == null || _c3LocalMarkers.isEmpty) return;
+    if (_isUpdatingC3LocalMarkerPositions) return;
+
+    final now = DateTime.now();
+    if (!force &&
+        now.difference(_lastC3LocalMarkerPositionUpdate) <
+            const Duration(milliseconds: 80)) {
+      return;
+    }
+    _lastC3LocalMarkerPositionUpdate = now;
+    _isUpdatingC3LocalMarkerPositions = true;
+    try {
+      final points = await controller.toScreenLocationBatch(
+        _c3LocalMarkers.map((marker) => marker.coordinate),
+      );
+      if (!mounted || points.length != _c3LocalMarkers.length) return;
+      setState(() => _c3LocalMarkerPositions = points);
+    } catch (error) {
+      debugPrint('Failed to update C3 local marker positions: $error');
     } finally {
-      if (mounted) setState(() => _locating = false);
+      _isUpdatingC3LocalMarkerPositions = false;
     }
   }
 
   Future<void> _focusLaoag() async {
     await _controller?.animateCamera(
       CameraUpdate.newCameraPosition(
-        const CameraPosition(target: _laoagCenter, zoom: 13.6, tilt: 0),
+        const CameraPosition(
+          target: _laoagCenter,
+          zoom: _defaultLaoagZoom,
+          tilt: 0,
+        ),
       ),
     );
   }
 
   Future<void> _addCityLabel() async {
-    await _controller?.addSymbol(
-      const SymbolOptions(
-        geometry: _laoagCenter,
-        textField: 'Laoag City',
+    if (_controller == null || _addedSources.contains(_cityLabelSourceId)) {
+      return;
+    }
+    await _controller?.addGeoJsonSource(_cityLabelSourceId, {
+      'type': 'FeatureCollection',
+      'features': [
+        {
+          'type': 'Feature',
+          'geometry': {
+            'type': 'Point',
+            'coordinates': [_laoagCenter.longitude, _laoagCenter.latitude],
+          },
+          'properties': {'name': 'Laoag City'},
+        },
+      ],
+    });
+    await _controller?.addSymbolLayer(
+      _cityLabelSourceId,
+      _cityLabelLayerId,
+      const SymbolLayerProperties(
+        textField: [Expressions.get, 'name'],
         textSize: 14,
+        textColor: '#0f172a',
+        textHaloColor: '#ffffff',
+        textHaloWidth: 1.4,
       ),
+      enableInteraction: false,
     );
+    _addedSources.add(_cityLabelSourceId);
+  }
+
+  Future<void> _handleStyleLoaded() async {
+    _addedSources.clear();
+    CitizenMapLayerManager.resetRuntimeState();
+    await _addCityLabel();
+    await _updateLayerVisibility();
   }
 
   void _toggleLayers() {
@@ -144,67 +248,131 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
   }
 
   void _toggleFlood() {
-    setState(() => _showFlood = !_showFlood);
-    _updateLayerVisibility();
+    final next = !_showFlood;
+    setState(() => _showFlood = next);
+    _updateLayerVisibility(
+      loadingMessage: next ? 'Flood hazard layer is loading...' : null,
+    );
   }
 
   void _toggleLandslide() {
-    setState(() => _showLandslide = !_showLandslide);
-    _updateLayerVisibility();
+    final next = !_showLandslide;
+    setState(() => _showLandslide = next);
+    _updateLayerVisibility(
+      loadingMessage: next ? 'Landslide hazard layer is loading...' : null,
+    );
+  }
+
+  void _toggleStormSurge() {
+    final next = !_showStormSurge;
+    setState(() => _showStormSurge = next);
+    _updateLayerVisibility(
+      loadingMessage: next ? 'Storm surge layer is loading...' : null,
+    );
+  }
+
+  void _toggleTyphoon() {
+    final next = !_showTyphoon;
+    setState(() => _showTyphoon = next);
+    _updateLayerVisibility(
+      loadingMessage: next ? 'Typhoon layer is loading...' : null,
+    );
   }
 
   void _toggleQuakes() {
-    setState(() => _showQuakes = !_showQuakes);
-    _updateLayerVisibility();
-  }
-
-  void _toggleFire() {
-    setState(() => _showFire = !_showFire);
-    _updateLayerVisibility();
+    final next = !_showQuakes;
+    setState(() => _showQuakes = next);
+    _updateLayerVisibility(
+      loadingMessage: next ? 'Earthquake layer is loading...' : null,
+    );
   }
 
   void _toggleRainRadar() {
-    setState(() => _showRainRadar = !_showRainRadar);
-    _updateLayerVisibility();
+    final next = !_showRainRadar;
+    setState(() => _showRainRadar = next);
+    _updateLayerVisibility(
+      loadingMessage: next ? 'Rain radar layer is loading...' : null,
+    );
   }
 
   void _toggleBarangayRain() {
-    setState(() => _showBarangayRain = !_showBarangayRain);
-    _updateLayerVisibility();
+    final next = !_showBarangayRain;
+    setState(() => _showBarangayRain = next);
+    _updateLayerVisibility(
+      loadingMessage: next ? 'Barangay rain layer is loading...' : null,
+    );
   }
 
   void _toggleFaults() {
-    setState(() => _showFaults = !_showFaults);
-    _updateLayerVisibility();
-  }
-
-  void _toggleVolcanoes() {
-    setState(() => _showVolcanoes = !_showVolcanoes);
-    _updateLayerVisibility();
+    final next = !_showFaults;
+    setState(() => _showFaults = next);
+    _updateLayerVisibility(
+      loadingMessage: next ? 'Active faults layer is loading...' : null,
+    );
   }
 
   void _toggleAqi() {
-    setState(() => _showAqi = !_showAqi);
-    _updateLayerVisibility();
+    final next = !_showAqi;
+    setState(() => _showAqi = next);
+    _updateLayerVisibility(
+      loadingMessage: next ? 'Air quality layer is loading...' : null,
+    );
   }
 
   void _toggleSevereWeather() {
-    setState(() => _showSevereWeather = !_showSevereWeather);
-    _updateLayerVisibility();
+    final next = !_showSevereWeather;
+    setState(() => _showSevereWeather = next);
+    _updateLayerVisibility(
+      loadingMessage: next ? 'Severe weather layer is loading...' : null,
+    );
   }
 
   void _toggleLocalFacilities() {
-    setState(() => _showLocalFacilities = !_showLocalFacilities);
-    _updateLayerVisibility();
+    final next = !_showLocalFacilities;
+    setState(() => _showLocalFacilities = next);
+    _updateLayerVisibility(
+      loadingMessage: next ? 'Facilities layer is loading...' : null,
+    );
   }
 
   void _toggleLocalHazards() {
-    setState(() => _showLocalHazards = !_showLocalHazards);
-    _updateLayerVisibility();
+    final next = !_showLocalHazards;
+    setState(() => _showLocalHazards = next);
+    _updateLayerVisibility(
+      loadingMessage: next ? 'Hazard areas layer is loading...' : null,
+    );
   }
 
   void _toggleLegendsPanel() {
     setState(() => _showLegendsPanel = !_showLegendsPanel);
+  }
+
+  void _toggleFloodReturnPeriod(int period) {
+    if (period == 100) return;
+    final next = List<int>.from(_floodReturnPeriods);
+    next.contains(period) ? next.remove(period) : next.add(period);
+    next.sort();
+    setState(() => _floodReturnPeriods = next);
+    _updateLayerVisibility(
+      loadingMessage: _showFlood ? 'Flood hazard layer is loading...' : null,
+    );
+  }
+
+  void _toggleStormSurgeAdvisory(int advisory) {
+    final next = List<int>.from(_stormSurgeAdvisories);
+    next.contains(advisory) ? next.remove(advisory) : next.add(advisory);
+    next.sort();
+    setState(() => _stormSurgeAdvisories = next);
+    _updateLayerVisibility(
+      loadingMessage: _showStormSurge
+          ? 'Storm surge layer is loading...'
+          : null,
+    );
+  }
+
+  void _setLayerOpacity(int value) {
+    setState(() => _layerOpacityPercent = value.clamp(0, 100));
+    _updateLayerVisibility();
   }
 
   @override
@@ -216,7 +384,7 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
             styleString: citizenMapStyle,
             initialCameraPosition: const CameraPosition(
               target: _laoagCenter,
-              zoom: 13.4,
+              zoom: _defaultLaoagZoom,
               tilt: 0,
             ),
             cameraTargetBounds: CameraTargetBounds(
@@ -226,14 +394,19 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
               ),
             ),
             minMaxZoomPreference: const MinMaxZoomPreference(11, 18),
-            myLocationEnabled: true,
-            myLocationRenderMode: MyLocationRenderMode.normal,
             compassEnabled: false,
             rotateGesturesEnabled: false,
             tiltGesturesEnabled: false,
-            trackCameraPosition: false,
+            annotationOrder: const [],
+            annotationConsumeTapEvents: const [AnnotationType.symbol],
+            trackCameraPosition: true,
             onMapCreated: (controller) {
-              _controller = controller;
+              setState(() => _controller = controller);
+              controller.addListener(() {
+                if (controller.isCameraMoving) {
+                  _updateC3LocalMarkerPositions();
+                }
+              });
               controller.onFeatureTapped.add((point, _, _, layerId, _) {
                 if (layerId.startsWith('c3-local-')) {
                   _openC3LocalFeatureAt(point);
@@ -244,10 +417,17 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
               await _openC3LocalFeatureAt(point);
             },
             onStyleLoadedCallback: () {
-              _addedSources.clear();
-              _addCityLabel();
-              _updateLayerVisibility();
+              _handleStyleLoaded();
             },
+            onCameraIdle: () {
+              _updateC3LocalMarkerPositions(force: true);
+            },
+          ),
+          C3LocalMarkerOverlay(
+            markers: _c3LocalMarkers,
+            positions: _c3LocalMarkerPositions,
+            onTap: (marker) =>
+                showC3LocalFeatureDetails(context, marker.feature),
           ),
           Positioned(
             top: 0,
@@ -264,44 +444,36 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
               ),
             ),
           ),
-          Positioned(
-            bottom: 24,
-            left: 16,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (_showLegendsPanel)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12.0),
-                    child: CitizenMapLegends(
-                      showFlood: _showFlood,
-                      showLandslide: _showLandslide,
-                      showQuakes: _showQuakes,
-                      showFire: _showFire,
-                      showRainRadar: _showRainRadar,
-                      showBarangayRain: _showBarangayRain,
-                      showFaults: _showFaults,
-                      showVolcanoes: _showVolcanoes,
-                      showAqi: _showAqi,
-                      showSevereWeather: _showSevereWeather,
-                    ),
-                  ),
-                FloatingActionButton(
-                  heroTag: 'legendToggleBtn',
-                  mini: true,
-                  onPressed: _toggleLegendsPanel,
-                  backgroundColor: AppTheme.primary,
-                  child: Icon(
-                    _showLegendsPanel
-                        ? Icons.keyboard_arrow_down
-                        : Icons.legend_toggle,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
+          if (_layerLoadingMessage != null)
+            Positioned(
+              top: 92,
+              left: 20,
+              right: 20,
+              child: _LayerLoadingBanner(message: _layerLoadingMessage!),
             ),
-          ),
+          if (_showLegendsPanel)
+            Positioned(
+              bottom: 24,
+              left: 16,
+              child: CitizenMapLegends(
+                showFlood: _showFlood,
+                floodReturnPeriods: _floodReturnPeriods,
+                showLandslide: _showLandslide,
+                showStormSurge: _showStormSurge,
+                stormSurgeAdvisories: _stormSurgeAdvisories,
+                showTyphoon: _showTyphoon,
+                showQuakes: _showQuakes,
+                showRainRadar: _showRainRadar,
+                showBarangayRain: _showBarangayRain,
+                showFaults: _showFaults,
+                showAqi: _showAqi,
+                showSevereWeather: _showSevereWeather,
+                layerOpacityPercent: _layerOpacityPercent,
+                onToggleFloodReturnPeriod: _toggleFloodReturnPeriod,
+                onToggleStormSurgeAdvisory: _toggleStormSurgeAdvisory,
+                onLayerOpacityChanged: _setLayerOpacity,
+              ),
+            ),
           if (_showLayersMenu)
             Positioned(
               right: 76,
@@ -310,24 +482,24 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
                 onClose: _toggleLayers,
                 showFlood: _showFlood,
                 showLandslide: _showLandslide,
+                showStormSurge: _showStormSurge,
+                showTyphoon: _showTyphoon,
                 showQuakes: _showQuakes,
-                showFire: _showFire,
                 showRainRadar: _showRainRadar,
                 showBarangayRain: _showBarangayRain,
                 showFaults: _showFaults,
-                showVolcanoes: _showVolcanoes,
                 showAqi: _showAqi,
                 showSevereWeather: _showSevereWeather,
                 showLocalFacilities: _showLocalFacilities,
                 showLocalHazards: _showLocalHazards,
                 onToggleFlood: _toggleFlood,
                 onToggleLandslide: _toggleLandslide,
+                onToggleStormSurge: _toggleStormSurge,
+                onToggleTyphoon: _toggleTyphoon,
                 onToggleQuakes: _toggleQuakes,
-                onToggleFire: _toggleFire,
                 onToggleRainRadar: _toggleRainRadar,
                 onToggleBarangayRain: _toggleBarangayRain,
                 onToggleFaults: _toggleFaults,
-                onToggleVolcanoes: _toggleVolcanoes,
                 onToggleAqi: _toggleAqi,
                 onToggleSevereWeather: _toggleSevereWeather,
                 onToggleLocalFacilities: _toggleLocalFacilities,
@@ -351,9 +523,8 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
                 ),
                 const SizedBox(height: 12),
                 GlassMapButton(
-                  icon: Icons.my_location,
-                  loading: _locating,
-                  onPressed: _goToMyLocation,
+                  icon: Icons.legend_toggle,
+                  onPressed: _toggleLegendsPanel,
                 ),
               ],
             ),
@@ -371,6 +542,47 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _LayerLoadingBanner extends StatelessWidget {
+  const _LayerLoadingBanner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: mapGlassDecoration(14),
+        child: Row(
+          children: [
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.2,
+                color: AppTheme.primary,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: const Color(0xff0f172a),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

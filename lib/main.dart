@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -9,6 +12,7 @@ import 'package:konektizen/theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _configureLowDeviceDefaults();
   await ServerConnectionConfig.instance.load();
 
   // Initialize Firebase (will work once google-services.json is added)
@@ -20,7 +24,25 @@ void main() async {
     // Continue anyway - app will work without Firebase until configured
   }
 
-  runApp(const ProviderScope(child: KonektizenApp()));
+  runZonedGuarded(
+    () => runApp(const ProviderScope(child: KonektizenApp())),
+    (error, stack) {
+      if (!kReleaseMode) debugPrint('Uncaught app error: $error');
+    },
+    zoneSpecification: kReleaseMode
+        ? ZoneSpecification(print: (self, parent, zone, line) {})
+        : null,
+  );
+}
+
+void _configureLowDeviceDefaults() {
+  final imageCache = PaintingBinding.instance.imageCache;
+  imageCache.maximumSize = 80;
+  imageCache.maximumSizeBytes = 40 << 20;
+
+  if (kReleaseMode) {
+    debugPrint = (String? message, {int? wrapWidth}) {};
+  }
 }
 
 class KonektizenApp extends ConsumerStatefulWidget {

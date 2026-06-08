@@ -3,11 +3,21 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:konektizen/core/api/api_service.dart';
-import 'package:konektizen/core/config/environment.dart';
 
 class C3LocalLayersService {
-  static Future<Map<String, dynamic>> fetchGeoJson() async {
+  static const _cloudPublicLayersUrl =
+      'https://c3.aitelligenz.com/api/data-encoding/public-map-layers';
+  static Map<String, dynamic>? _cachedGeoJson;
+
+  static Future<Map<String, dynamic>> fetchGeoJson({
+    bool forceRefresh = false,
+  }) async {
+    final cached = _cachedGeoJson;
+    if (!forceRefresh && cached != null) return cached;
+
     Map<String, dynamic>? emptyPayload;
+    final mergedFeatures = <Map<String, dynamic>>[];
+    final seen = <String>{};
     Object? lastError;
 
     for (final url in _candidateUrls()) {
@@ -15,20 +25,39 @@ class C3LocalLayersService {
         final payload = await _fetch(url);
         final count = (payload['features'] as List<dynamic>? ?? []).length;
         debugPrint('C3 local layers feed: $url ($count features)');
-        if (count > 0) return payload;
-        emptyPayload ??= payload;
+        if (count == 0) {
+          emptyPayload ??= payload;
+          continue;
+        }
+        for (final feature
+            in (payload['features'] as List<dynamic>).whereType<Map>()) {
+          final normalized = _stringKeyedMap(feature);
+          if (seen.add(_featureKey(normalized))) {
+            mergedFeatures.add(normalized);
+          }
+        }
       } catch (error) {
         lastError = error;
         debugPrint('C3 local layers feed failed: $url ($error)');
       }
     }
 
-    if (emptyPayload != null) return emptyPayload;
+    if (mergedFeatures.isNotEmpty) {
+      _cachedGeoJson = {
+        "type": "FeatureCollection",
+        "features": mergedFeatures,
+      };
+      return _cachedGeoJson!;
+    }
+    if (emptyPayload != null) {
+      _cachedGeoJson = emptyPayload;
+      return emptyPayload;
+    }
     throw Exception('Local C3 layers unavailable: $lastError');
   }
 
   static Future<Map<String, dynamic>> _fetch(Uri url) async {
-    final response = await http.get(url).timeout(EnvironmentConfig.requestTimeout);
+    final response = await http.get(url).timeout(const Duration(seconds: 8));
     if (response.statusCode != 200) {
       throw Exception('HTTP ${response.statusCode}');
     }
@@ -37,9 +66,39 @@ class C3LocalLayersService {
     return {"type": "FeatureCollection", "features": []};
   }
 
+  static Map<String, dynamic> _stringKeyedMap(Map source) {
+    return source.map((key, value) {
+      if (value is Map) return MapEntry(key.toString(), _stringKeyedMap(value));
+      if (value is List) {
+        return MapEntry(
+          key.toString(),
+          value
+              .map((item) => item is Map ? _stringKeyedMap(item) : item)
+              .toList(),
+        );
+      }
+      return MapEntry(key.toString(), value);
+    });
+  }
+
+  static String _featureKey(Map<String, dynamic> feature) {
+    final properties = Map<String, dynamic>.from(
+      feature['properties'] as Map? ?? {},
+    );
+    final id = properties['id']?.toString().trim();
+    if (id != null && id.isNotEmpty) return '${properties['kind']}:$id';
+    return [
+      properties['kind'],
+      properties['type'],
+      properties['name'],
+      feature['geometry'],
+    ].join('|');
+  }
+
   static List<Uri> _candidateUrls() {
     final urls = <String>[
       '${ApiService.baseUrl}/data-encoding/public-map-layers',
+      _cloudPublicLayersUrl,
       if (kDebugMode) ...[
         'http://localhost:5175/api/data-encoding/public-map-layers',
         'http://127.0.0.1:5001/api/data-encoding/public-map-layers',

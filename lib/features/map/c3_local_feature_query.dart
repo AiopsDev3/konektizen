@@ -10,25 +10,31 @@ Future<Map<String, dynamic>?> queryC3LocalFeature(
   bool includeHazards = true,
 }) async {
   if (controller == null) return null;
+  final tapPoint = math.Point<double>(point.x.toDouble(), point.y.toDouble());
   try {
-    final layers = _clickableLayers(
+    final layers = await _existingClickableLayers(
+      controller,
       includeFacilities: includeFacilities,
       includeHazards: includeHazards,
     );
-    if (layers.isEmpty) return null;
 
-    final tapPoint = math.Point<double>(point.x.toDouble(), point.y.toDouble());
-    final features = await controller.queryRenderedFeaturesInRect(
-      Rect.fromCenter(
-        center: Offset(tapPoint.x, tapPoint.y),
-        width: 72,
-        height: 72,
-      ),
-      layers,
-      null,
-    );
-    final rendered = _firstFeature(features);
-    if (rendered != null) return rendered;
+    if (layers.isNotEmpty) {
+      try {
+        final features = await controller.queryRenderedFeaturesInRect(
+          Rect.fromCenter(
+            center: Offset(tapPoint.x, tapPoint.y),
+            width: 72,
+            height: 72,
+          ),
+          layers,
+          null,
+        );
+        final rendered = _firstFeature(features);
+        if (rendered != null) return rendered;
+      } catch (error) {
+        debugPrint('Error querying rendered C3 local layers: $error');
+      }
+    }
 
     return _nearestSourceFeature(
       controller,
@@ -42,17 +48,35 @@ Future<Map<String, dynamic>?> queryC3LocalFeature(
   }
 }
 
+Future<List<String>> _existingClickableLayers(
+  MapLibreMapController controller, {
+  required bool includeFacilities,
+  required bool includeHazards,
+}) async {
+  final existing = (await controller.getLayerIds())
+      .map((id) => id.toString())
+      .toSet();
+  return _clickableLayers(
+    includeFacilities: includeFacilities,
+    includeHazards: includeHazards,
+  ).where(existing.contains).toList();
+}
+
 List<String> _clickableLayers({
   required bool includeFacilities,
   required bool includeHazards,
 }) {
   return [
     if (includeFacilities) ...[
+      'c3-local-facilities-symbols-icons',
       'c3-local-facilities-symbols',
       'c3-local-facilities-points',
       'c3-local-facilities-labels',
     ],
     if (includeHazards) ...[
+      'c3-local-hazards-fill',
+      'c3-local-hazards-outline',
+      'c3-local-hazards-symbols-icons',
       'c3-local-hazards-symbols',
       'c3-local-hazards-points',
       'c3-local-hazards-labels',

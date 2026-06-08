@@ -1,165 +1,200 @@
 import 'package:flutter/material.dart';
-import 'package:konektizen/features/map/c3_facility_map_icons.dart';
 import 'package:konektizen/features/map/c3_local_layer_features.dart';
 import 'package:konektizen/features/map/c3_local_layers_service.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
+
+final _visibleLocalLayerKeys = <String>{};
+const _shapeFilter = [
+  'match',
+  ['geometry-type'],
+  ['Polygon', 'MultiPolygon'],
+  true,
+  false,
+];
+const _facilitySourceId = 'c3-local-facilities-source';
+const _hazardSourceId = 'c3-local-hazards-source';
+
+void resetC3LocalLayerRuntimeState() {
+  _visibleLocalLayerKeys.clear();
+}
 
 Future<void> syncC3LocalLayers(
   MapLibreMapController? controller,
   Set<String> addedSources,
   bool showFacilities,
-  bool showHazards,
-) async {
+  bool showHazards, {
+  String? belowLayerId,
+}) async {
   if (controller == null) return;
 
   Map<String, dynamic>? geoJson;
+  final localBelowLayerId = _externalBelowLayerId(belowLayerId);
 
   Future<void> fetchGeoJsonIfNeeded() async {
     if (geoJson == null) {
       try {
-        geoJson = await C3LocalLayersService.fetchGeoJson();
-        await registerC3FacilityMapIcons(controller);
+        geoJson = await C3LocalLayersService.fetchGeoJson(forceRefresh: true);
       } catch (e) {
         debugPrint('Failed to fetch C3 Local GeoJson: $e');
       }
     }
   }
 
-  // Handle Facilities
-  if (showFacilities) {
-    if (!addedSources.contains('c3-local-facilities-source')) {
+  // Handle Hazards first so facility pins remain above hazard shapes.
+  if (showHazards) {
+    if (addedSources.contains(_hazardSourceId) &&
+        !await _hasAllLocalLayers(controller, 'hazards')) {
+      await _removeLocalLayer(controller, addedSources, 'hazards');
+    }
+    if (!addedSources.contains(_hazardSourceId)) {
       await fetchGeoJsonIfNeeded();
       if (geoJson != null) {
+        await _removeLocalLayer(controller, addedSources, 'hazards');
         await _addLocalLayer(
           controller,
-          sourceId: 'c3-local-facilities-source',
-          pointLayerId: 'c3-local-facilities-points',
-          symbolLayerId: 'c3-local-facilities-symbols',
-          labelLayerId: 'c3-local-facilities-labels',
-          geoJson: filterC3LocalFeatures(geoJson!, 'facility'),
-          useImageIcons: true,
+          sourceId: _hazardSourceId,
+          fillLayerId: 'c3-local-hazards-fill',
+          outlineLayerId: 'c3-local-hazards-outline',
+          geoJson: filterC3LocalFeatures(geoJson!, 'hazard'),
+          includeShapes: true,
+          belowLayerId: localBelowLayerId,
         );
-        addedSources.add('c3-local-facilities-source');
+        addedSources.add(_hazardSourceId);
       }
-    } else {
-      await _setLocalLayerVisibility(controller, 'facilities', true);
     }
-  } else if (addedSources.contains('c3-local-facilities-source')) {
-    await _setLocalLayerVisibility(controller, 'facilities', false);
+    if (addedSources.contains(_hazardSourceId)) {
+      _visibleLocalLayerKeys.add('hazards');
+    }
+  } else {
+    await _removeLocalLayer(controller, addedSources, 'hazards');
+    _visibleLocalLayerKeys.remove('hazards');
   }
 
-  // Handle Hazards
-  if (showHazards) {
-    if (!addedSources.contains('c3-local-hazards-source')) {
+  // Handle Facilities
+  if (showFacilities) {
+    if (addedSources.contains(_facilitySourceId) &&
+        !await _hasAllLocalLayers(controller, 'facilities')) {
+      await _removeLocalLayer(controller, addedSources, 'facilities');
+    }
+    if (!addedSources.contains(_facilitySourceId)) {
       await fetchGeoJsonIfNeeded();
       if (geoJson != null) {
+        await _removeLocalLayer(controller, addedSources, 'facilities');
         await _addLocalLayer(
           controller,
-          sourceId: 'c3-local-hazards-source',
-          pointLayerId: 'c3-local-hazards-points',
-          symbolLayerId: 'c3-local-hazards-symbols',
-          labelLayerId: 'c3-local-hazards-labels',
-          geoJson: filterC3LocalFeatures(geoJson!, 'hazard'),
+          sourceId: _facilitySourceId,
+          geoJson: filterC3LocalFeatures(geoJson!, 'facility'),
         );
-        addedSources.add('c3-local-hazards-source');
+        addedSources.add(_facilitySourceId);
       }
-    } else {
-      await _setLocalLayerVisibility(controller, 'hazards', true);
     }
-  } else if (addedSources.contains('c3-local-hazards-source')) {
-    await _setLocalLayerVisibility(controller, 'hazards', false);
+    if (addedSources.contains(_facilitySourceId)) {
+      _visibleLocalLayerKeys.add('facilities');
+    }
+  } else {
+    await _removeLocalLayer(controller, addedSources, 'facilities');
+    _visibleLocalLayerKeys.remove('facilities');
   }
 }
 
 Future<void> _addLocalLayer(
   MapLibreMapController controller, {
   required String sourceId,
-  required String pointLayerId,
-  required String symbolLayerId,
-  required String labelLayerId,
+  String? fillLayerId,
+  String? outlineLayerId,
   required Map<String, dynamic> geoJson,
-  bool useImageIcons = false,
+  bool includeShapes = false,
+  String? belowLayerId,
 }) async {
   await controller.addGeoJsonSource(sourceId, geoJson);
-  if (useImageIcons) {
-    await controller.addCircleLayer(
+
+  if (includeShapes && fillLayerId != null && outlineLayerId != null) {
+    await controller.addFillLayer(
       sourceId,
-      pointLayerId,
-      const CircleLayerProperties(
-        circleColor: '#ffffff',
-        circleRadius: 24,
-        circleOpacity: 0.01,
-        circleStrokeWidth: 0,
+      fillLayerId,
+      const FillLayerProperties(
+        fillColor: [Expressions.get, 'shapeFillColor'],
+        fillOpacity: [Expressions.get, 'shapeOpacity'],
+        fillOutlineColor: 'rgba(255, 0, 0, 0)',
       ),
+      belowLayerId: belowLayerId,
+      filter: _shapeFilter,
+      enableInteraction: true,
     );
-    await controller.addSymbolLayer(
+    await controller.addLineLayer(
       sourceId,
-      symbolLayerId,
-      const SymbolLayerProperties(
-        iconImage: [Expressions.get, 'iconImage'],
-        iconSize: 0.85,
-        iconAllowOverlap: true,
-        iconIgnorePlacement: true,
+      outlineLayerId,
+      const LineLayerProperties(
+        lineColor: [Expressions.get, 'shapeStrokeColor'],
+        lineOpacity: 0.9,
+        lineWidth: [
+          'interpolate',
+          ['linear'],
+          [Expressions.zoom],
+          11,
+          1.8,
+          16,
+          4.0,
+        ],
       ),
-    );
-  } else {
-    await controller.addCircleLayer(
-      sourceId,
-      pointLayerId,
-      const CircleLayerProperties(
-        circleColor: [Expressions.get, 'markerColor'],
-        circleRadius: [Expressions.get, 'markerRadius'],
-        circleOpacity: 0.95,
-        circleStrokeColor: [Expressions.get, 'markerStroke'],
-        circleStrokeWidth: 3,
-      ),
-    );
-    await controller.addSymbolLayer(
-      sourceId,
-      symbolLayerId,
-      const SymbolLayerProperties(
-        textField: [Expressions.get, 'symbol'],
-        textSize: [Expressions.get, 'symbolSize'],
-        textColor: '#ffffff',
-        textHaloColor: '#0f172a',
-        textHaloWidth: 1.4,
-        textAllowOverlap: true,
-      ),
+      belowLayerId: belowLayerId,
+      filter: _shapeFilter,
+      enableInteraction: true,
     );
   }
-  await controller.addSymbolLayer(
-    sourceId,
-    labelLayerId,
-    const SymbolLayerProperties(
-      textField: [Expressions.get, 'name'],
-      textSize: 12,
-      textOffset: [0, 2.0],
-      textColor: '#0f172a',
-      textHaloColor: '#ffffff',
-      textHaloWidth: 1.6,
-      textAllowOverlap: true,
-    ),
-  );
 }
 
-Future<void> _setLocalLayerVisibility(
+Future<bool> _hasAllLocalLayers(
   MapLibreMapController controller,
   String layer,
-  bool visible,
 ) async {
+  final existing = (await controller.getLayerIds())
+      .map((id) => id.toString())
+      .toSet();
+  return _coreLocalLayerIds(layer).every(existing.contains);
+}
+
+Future<void> _removeLocalLayer(
+  MapLibreMapController controller,
+  Set<String> addedSources,
+  String layer,
+) async {
+  for (final layerId in _allLocalLayerIds(layer).reversed) {
+    try {
+      await controller.removeLayer(layerId);
+    } catch (_) {}
+  }
+  final sourceId = layer == 'hazards' ? _hazardSourceId : _facilitySourceId;
+  try {
+    await controller.removeSource(sourceId);
+  } catch (_) {}
+  addedSources.remove(sourceId);
+  _visibleLocalLayerKeys.remove(layer);
+}
+
+List<String> _coreLocalLayerIds(String layer) {
   final prefix = layer == 'hazards'
       ? 'c3-local-hazards'
       : 'c3-local-facilities';
-  for (final layerId in [
+  return [
+    if (layer == 'hazards') ...['$prefix-fill', '$prefix-outline'],
+  ];
+}
+
+List<String> _allLocalLayerIds(String layer) {
+  final prefix = layer == 'hazards'
+      ? 'c3-local-hazards'
+      : 'c3-local-facilities';
+  return [
+    ..._coreLocalLayerIds(layer),
     '$prefix-points',
     '$prefix-symbols',
+    '$prefix-symbols-icons',
     '$prefix-labels',
-  ]) {
-    try {
-      await controller.setLayerVisibility(layerId, visible);
-      debugPrint('Successfully set visibility for $layerId to $visible');
-    } catch (e) {
-      debugPrint('Failed to set visibility for $layerId: $e');
-    }
-  }
+  ];
+}
+
+String? _externalBelowLayerId(String? layerId) {
+  if (layerId == null || layerId.startsWith('c3-local-hazards')) return null;
+  return layerId;
 }

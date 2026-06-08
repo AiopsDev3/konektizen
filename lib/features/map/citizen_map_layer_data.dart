@@ -66,22 +66,34 @@ List<Map<String, dynamic>> quakeFeaturesNearLaoag(Map<String, dynamic> data) {
 
     final longitude = (coordinates[0] as num).toDouble();
     final latitude = (coordinates[1] as num).toDouble();
+    final depth = coordinates.length > 2 && coordinates[2] is num
+        ? (coordinates[2] as num).toDouble()
+        : null;
     if (!_isNearLaoag(latitude, longitude)) continue;
 
     final properties = feature['properties'] as Map<String, dynamic>? ?? {};
-    final magnitude = properties['mag'];
+    final magnitude = (properties['mag'] as num?)?.toDouble();
+    final depthColor = depth == null
+        ? "#ef4444"
+        : depth >= 70
+        ? "#3b82f6"
+        : depth >= 30
+        ? "#f59e0b"
+        : "#ef4444";
     features.add({
       "type": "Feature",
       "geometry": {
         "type": "Point",
-        "coordinates": [longitude, latitude],
+        "coordinates": [longitude, latitude, if (depth != null) depth],
       },
       "properties": {
         "label": magnitude == null
             ? "Recent earthquake"
-            : "M$magnitude earthquake",
-        "color": "#ef4444",
-        "radius": 9,
+            : "M${magnitude.toStringAsFixed(1)} earthquake",
+        "mag": magnitude ?? 2.5,
+        "depth": depth ?? 0,
+        "color": depthColor,
+        "radius": magnitude == null ? 8 : (magnitude.clamp(2.5, 7.0) * 2.0),
       },
     });
   }

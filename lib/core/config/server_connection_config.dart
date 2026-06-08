@@ -2,7 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ServerConnectionConfig extends ChangeNotifier {
-  static const String defaultOrigin =
+  static const String defaultOrigin = 'https://c3.aitelligenz.com';
+  static const String _legacyMontalbanOrigin =
       'http://montalban.c3.aitelligenz.com:5175';
   static const String _storageKey = 'c3_server_origin';
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
@@ -21,7 +22,8 @@ class ServerConnectionConfig extends ChangeNotifier {
     final saved = await _storage.read(key: _storageKey);
     if (saved == null || saved.trim().isEmpty) return;
     try {
-      _origin = normalizeOrigin(saved);
+      final next = normalizeOrigin(saved);
+      _origin = next == _legacyMontalbanOrigin ? defaultOrigin : next;
     } catch (_) {
       _origin = defaultOrigin;
     }
