@@ -23,8 +23,8 @@ Future<Map<String, dynamic>?> queryC3LocalFeature(
         final features = await controller.queryRenderedFeaturesInRect(
           Rect.fromCenter(
             center: Offset(tapPoint.x, tapPoint.y),
-            width: 72,
-            height: 72,
+            width: 96,
+            height: 96,
           ),
           layers,
           null,
@@ -127,7 +127,7 @@ Future<Map<String, dynamic>?> _nearestSourceFeature(
     }
   }
 
-  return nearestDistance <= 72 ? nearest : null;
+  return nearestDistance <= 96 ? nearest : null;
 }
 
 double _screenDistance(math.Point<double> a, math.Point b) {

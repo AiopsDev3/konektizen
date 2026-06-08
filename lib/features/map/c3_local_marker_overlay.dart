@@ -64,36 +64,169 @@ List<C3LocalOverlayMarker> buildC3LocalOverlayMarkers(
   return markers;
 }
 
-class C3LocalMarkerOverlay extends StatelessWidget {
+class C3LocalMarkerOverlay extends StatefulWidget {
   const C3LocalMarkerOverlay({
     super.key,
+    required this.controller,
     required this.markers,
-    required this.positions,
     required this.onTap,
   });
 
+  final MapLibreMapController? controller;
   final List<C3LocalOverlayMarker> markers;
-  final List<math.Point<num>> positions;
   final ValueChanged<C3LocalOverlayMarker> onTap;
 
   @override
+  State<C3LocalMarkerOverlay> createState() => _C3LocalMarkerOverlayState();
+}
+
+class _C3LocalMarkerOverlayState extends State<C3LocalMarkerOverlay> {
+  static const _cameraMoveUpdateInterval = Duration(milliseconds: 96);
+  static const _positionChangeThreshold = 0.75;
+
+  MapLibreMapController? _controller;
+  Map<String, math.Point<num>> _positions = {};
+  bool _isUpdatingPositions = false;
+  bool _needsPositionUpdate = false;
+  int _positionRequest = 0;
+  DateTime _lastPositionUpdate = DateTime.fromMillisecondsSinceEpoch(0);
+
+  @override
+  void initState() {
+    super.initState();
+    _attachController(widget.controller);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _updatePositions(force: true);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant C3LocalMarkerOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      _attachController(widget.controller);
+    }
+    if (oldWidget.markers != widget.markers) {
+      _prunePositions();
+      _updatePositions(force: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.removeListener(_handleControllerChanged);
+    super.dispose();
+  }
+
+  void _attachController(MapLibreMapController? controller) {
+    if (_controller == controller) return;
+    _controller?.removeListener(_handleControllerChanged);
+    _controller = controller;
+    _controller?.addListener(_handleControllerChanged);
+  }
+
+  void _handleControllerChanged() {
+    final controller = _controller;
+    if (controller == null) return;
+    _updatePositions(force: !controller.isCameraMoving);
+  }
+
+  void _prunePositions() {
+    final ids = widget.markers.map((marker) => marker.id).toSet();
+    final next = Map<String, math.Point<num>>.from(_positions)
+      ..removeWhere((id, _) => !ids.contains(id));
+    if (next.length == _positions.length) return;
+    setState(() => _positions = next);
+  }
+
+  Future<void> _updatePositions({bool force = false}) async {
+    final controller = _controller;
+    if (controller == null || widget.markers.isEmpty) {
+      if (_positions.isNotEmpty && mounted) setState(() => _positions = {});
+      return;
+    }
+    if (_isUpdatingPositions) {
+      _needsPositionUpdate = true;
+      return;
+    }
+
+    final now = DateTime.now();
+    if (!force &&
+        now.difference(_lastPositionUpdate) < _cameraMoveUpdateInterval) {
+      return;
+    }
+    _lastPositionUpdate = now;
+    _isUpdatingPositions = true;
+    final request = ++_positionRequest;
+
+    try {
+      final markers = List<C3LocalOverlayMarker>.from(widget.markers);
+      final points = await controller.toScreenLocationBatch(
+        markers.map((marker) => marker.coordinate),
+      );
+      if (!mounted ||
+          request != _positionRequest ||
+          points.length != markers.length) {
+        return;
+      }
+
+      final next = <String, math.Point<num>>{};
+      for (var i = 0; i < markers.length; i++) {
+        next[markers[i].id] = points[i];
+      }
+      if (_positionsAreClose(_positions, next)) return;
+      setState(() => _positions = next);
+    } catch (error) {
+      debugPrint('Failed to update C3 local marker positions: $error');
+    } finally {
+      _isUpdatingPositions = false;
+      if (_needsPositionUpdate && mounted) {
+        _needsPositionUpdate = false;
+        _updatePositions(force: true);
+      }
+    }
+  }
+
+  bool _positionsAreClose(
+    Map<String, math.Point<num>> current,
+    Map<String, math.Point<num>> next,
+  ) {
+    if (current.length != next.length) return false;
+    for (final entry in next.entries) {
+      final previous = current[entry.key];
+      if (previous == null) return false;
+      final dx = (previous.x - entry.value.x).abs();
+      final dy = (previous.y - entry.value.y).abs();
+      if (dx > _positionChangeThreshold || dy > _positionChangeThreshold) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (markers.isEmpty || positions.length != markers.length) {
+    if (widget.markers.isEmpty || _positions.isEmpty) {
       return const SizedBox.shrink();
     }
 
     final ratio = _screenCoordinateRatio(context);
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        for (var i = 0; i < markers.length; i++)
-          _PositionedMarker(
-            marker: markers[i],
-            position: positions[i],
-            ratio: ratio,
-            onTap: onTap,
-          ),
-      ],
+    final viewportSize = MediaQuery.sizeOf(context);
+    return SizedBox.expand(
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          for (final marker in widget.markers)
+            if (_positions[marker.id] != null)
+              _PositionedMarker(
+                marker: marker,
+                position: _positions[marker.id]!,
+                ratio: ratio,
+                viewportSize: viewportSize,
+                onTap: widget.onTap,
+              ),
+        ],
+      ),
     );
   }
 }
@@ -103,20 +236,28 @@ class _PositionedMarker extends StatelessWidget {
     required this.marker,
     required this.position,
     required this.ratio,
+    required this.viewportSize,
     required this.onTap,
   });
 
-  static const _size = 38.0;
+  static const _hitSize = 72.0;
+  static const _visualSize = 38.0;
   final C3LocalOverlayMarker marker;
   final math.Point<num> position;
   final double ratio;
+  final Size viewportSize;
   final ValueChanged<C3LocalOverlayMarker> onTap;
 
   @override
   Widget build(BuildContext context) {
-    final left = position.x.toDouble() / ratio - (_size / 2);
-    final top = position.y.toDouble() / ratio - (_size / 2);
-    if (left < -80 || top < -80) return const SizedBox.shrink();
+    final left = position.x.toDouble() / ratio - (_hitSize / 2);
+    final top = position.y.toDouble() / ratio - (_hitSize / 2);
+    if (left < -_hitSize ||
+        top < -_hitSize ||
+        left > viewportSize.width + _hitSize ||
+        top > viewportSize.height + _hitSize) {
+      return const SizedBox.shrink();
+    }
 
     final color = marker.isFacility
         ? const Color(0xff2f80ed)
@@ -124,28 +265,43 @@ class _PositionedMarker extends StatelessWidget {
     return Positioned(
       left: left,
       top: top,
-      width: _size,
-      height: _size,
-      child: GestureDetector(
+      width: _hitSize,
+      height: _hitSize,
+      child: Listener(
         behavior: HitTestBehavior.opaque,
-        onTap: () => onTap(marker),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: const Color(0xff0f172a),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.28),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
+        onPointerUp: (_) => onTap(marker),
+        child: Center(
+          child: RepaintBoundary(
+            child: SizedBox(
+              width: _visualSize,
+              height: _visualSize,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xff0f172a),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.28),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(3),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: color,
+                    ),
+                    child: Icon(
+                      _markerIcon(marker),
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
+                ),
               ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(3),
-            child: DecoratedBox(
-              decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-              child: Icon(_markerIcon(marker), color: Colors.white, size: 22),
             ),
           ),
         ),

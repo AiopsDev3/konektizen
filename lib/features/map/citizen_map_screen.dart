@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -53,10 +54,7 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
   bool _isOpeningC3LocalFeature = false;
   String? _layerLoadingMessage;
   List<C3LocalOverlayMarker> _c3LocalMarkers = [];
-  List<math.Point<num>> _c3LocalMarkerPositions = [];
-  bool _isUpdatingC3LocalMarkerPositions = false;
-  DateTime _lastC3LocalMarkerPositionUpdate =
-      DateTime.fromMillisecondsSinceEpoch(0);
+  Timer? _layerOpacityDebounce;
 
   Future<void> _openC3LocalFeatureAt(math.Point point) async {
     if (!_showLocalFacilities && !_showLocalHazards) return;
@@ -124,7 +122,6 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
       if (_c3LocalMarkers.isNotEmpty && mounted) {
         setState(() {
           _c3LocalMarkers = [];
-          _c3LocalMarkerPositions = [];
         });
       }
       return;
@@ -138,49 +135,13 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
         includeHazards: _showLocalHazards,
       );
       if (!mounted) return;
-      setState(() {
-        _c3LocalMarkers = markers;
-        _c3LocalMarkerPositions = List<math.Point<num>>.filled(
-          markers.length,
-          const math.Point<num>(-1000, -1000),
-        );
-      });
-      await _updateC3LocalMarkerPositions(force: true);
+      setState(() => _c3LocalMarkers = markers);
       debugPrint('C3 local Flutter markers: ${markers.length}');
     } catch (error) {
       debugPrint('Failed to refresh C3 local Flutter markers: $error');
       if (mounted) {
-        setState(() {
-          _c3LocalMarkers = [];
-          _c3LocalMarkerPositions = [];
-        });
+        setState(() => _c3LocalMarkers = []);
       }
-    }
-  }
-
-  Future<void> _updateC3LocalMarkerPositions({bool force = false}) async {
-    final controller = _controller;
-    if (controller == null || _c3LocalMarkers.isEmpty) return;
-    if (_isUpdatingC3LocalMarkerPositions) return;
-
-    final now = DateTime.now();
-    if (!force &&
-        now.difference(_lastC3LocalMarkerPositionUpdate) <
-            const Duration(milliseconds: 80)) {
-      return;
-    }
-    _lastC3LocalMarkerPositionUpdate = now;
-    _isUpdatingC3LocalMarkerPositions = true;
-    try {
-      final points = await controller.toScreenLocationBatch(
-        _c3LocalMarkers.map((marker) => marker.coordinate),
-      );
-      if (!mounted || points.length != _c3LocalMarkers.length) return;
-      setState(() => _c3LocalMarkerPositions = points);
-    } catch (error) {
-      debugPrint('Failed to update C3 local marker positions: $error');
-    } finally {
-      _isUpdatingC3LocalMarkerPositions = false;
     }
   }
 
@@ -372,7 +333,16 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
 
   void _setLayerOpacity(int value) {
     setState(() => _layerOpacityPercent = value.clamp(0, 100));
-    _updateLayerVisibility();
+    _layerOpacityDebounce?.cancel();
+    _layerOpacityDebounce = Timer(const Duration(milliseconds: 140), () {
+      _updateLayerVisibility();
+    });
+  }
+
+  @override
+  void dispose() {
+    _layerOpacityDebounce?.cancel();
+    super.dispose();
   }
 
   @override
@@ -402,11 +372,6 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
             trackCameraPosition: true,
             onMapCreated: (controller) {
               setState(() => _controller = controller);
-              controller.addListener(() {
-                if (controller.isCameraMoving) {
-                  _updateC3LocalMarkerPositions();
-                }
-              });
               controller.onFeatureTapped.add((point, _, _, layerId, _) {
                 if (layerId.startsWith('c3-local-')) {
                   _openC3LocalFeatureAt(point);
@@ -419,15 +384,14 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
             onStyleLoadedCallback: () {
               _handleStyleLoaded();
             },
-            onCameraIdle: () {
-              _updateC3LocalMarkerPositions(force: true);
-            },
           ),
-          C3LocalMarkerOverlay(
-            markers: _c3LocalMarkers,
-            positions: _c3LocalMarkerPositions,
-            onTap: (marker) =>
-                showC3LocalFeatureDetails(context, marker.feature),
+          Positioned.fill(
+            child: C3LocalMarkerOverlay(
+              controller: _controller,
+              markers: _c3LocalMarkers,
+              onTap: (marker) =>
+                  showC3LocalFeatureDetails(context, marker.feature),
+            ),
           ),
           Positioned(
             top: 0,

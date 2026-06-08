@@ -7,14 +7,35 @@ import 'package:konektizen/core/api/api_service.dart';
 class C3LocalLayersService {
   static const _cloudPublicLayersUrl =
       'https://c3.aitelligenz.com/api/data-encoding/public-map-layers';
+  static const _cacheTtl = Duration(minutes: 2);
   static Map<String, dynamic>? _cachedGeoJson;
+  static DateTime? _cachedAt;
+  static Future<Map<String, dynamic>>? _pendingFetch;
 
   static Future<Map<String, dynamic>> fetchGeoJson({
     bool forceRefresh = false,
   }) async {
     final cached = _cachedGeoJson;
-    if (!forceRefresh && cached != null) return cached;
+    if (!forceRefresh && cached != null && !_isCacheExpired) return cached;
 
+    final pending = _pendingFetch;
+    if (pending != null) return pending;
+
+    _pendingFetch = _fetchMergedGeoJson();
+    try {
+      return await _pendingFetch!;
+    } finally {
+      _pendingFetch = null;
+    }
+  }
+
+  static bool get _isCacheExpired {
+    final cachedAt = _cachedAt;
+    if (cachedAt == null) return true;
+    return DateTime.now().difference(cachedAt) > _cacheTtl;
+  }
+
+  static Future<Map<String, dynamic>> _fetchMergedGeoJson() async {
     Map<String, dynamic>? emptyPayload;
     final mergedFeatures = <Map<String, dynamic>>[];
     final seen = <String>{};
@@ -47,12 +68,16 @@ class C3LocalLayersService {
         "type": "FeatureCollection",
         "features": mergedFeatures,
       };
+      _cachedAt = DateTime.now();
       return _cachedGeoJson!;
     }
     if (emptyPayload != null) {
       _cachedGeoJson = emptyPayload;
+      _cachedAt = DateTime.now();
       return emptyPayload;
     }
+    final cached = _cachedGeoJson;
+    if (cached != null) return cached;
     throw Exception('Local C3 layers unavailable: $lastError');
   }
 

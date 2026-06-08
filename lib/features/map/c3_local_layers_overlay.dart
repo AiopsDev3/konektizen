@@ -33,7 +33,7 @@ Future<void> syncC3LocalLayers(
   Future<void> fetchGeoJsonIfNeeded() async {
     if (geoJson == null) {
       try {
-        geoJson = await C3LocalLayersService.fetchGeoJson(forceRefresh: true);
+        geoJson = await C3LocalLayersService.fetchGeoJson();
       } catch (e) {
         debugPrint('Failed to fetch C3 Local GeoJson: $e');
       }

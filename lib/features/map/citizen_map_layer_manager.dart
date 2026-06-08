@@ -14,6 +14,7 @@ class CitizenMapLayerManager {
 
   final MapLibreMapController? controller;
   final Set<String> addedSources;
+  static final _assetGeoJsonCache = <String, Map<String, dynamic>>{};
 
   static void resetRuntimeState() {
     resetC3LocalLayerRuntimeState();
@@ -792,10 +793,16 @@ class CitizenMapLayerManager {
   }
 
   Future<Map<String, dynamic>> _loadAssetGeoJson(String assetPath) async {
+    final cached = _assetGeoJsonCache[assetPath];
+    if (cached != null) return cached;
+
     final geoJsonString = await rootBundle.loadString(assetPath);
     final geoJson = jsonDecode(geoJsonString);
-    if (geoJson is Map<String, dynamic>) return geoJson;
-    return {'type': 'FeatureCollection', 'features': []};
+    final normalized = geoJson is Map<String, dynamic>
+        ? geoJson
+        : {'type': 'FeatureCollection', 'features': []};
+    _assetGeoJsonCache[assetPath] = normalized;
+    return normalized;
   }
 
   List<dynamic> _inFilter(String property, List<int> values) {
