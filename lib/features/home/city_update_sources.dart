@@ -51,8 +51,7 @@ const alertNotificationLinks = [
   ),
   CityUpdateLink(
     title: 'PAGASA Cyclone Bulletins',
-    description:
-        'Official tropical cyclone bulletins and severe weather posts.',
+    description: 'Official tropical cyclone bulletins and weather advisories.',
     url: pagasaTropicalCyclone,
     icon: Icons.cyclone_outlined,
     group: CityUpdateGroup.alerts,

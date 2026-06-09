@@ -15,10 +15,8 @@ class CitizenMapLayersMenu extends StatelessWidget {
     required this.showTyphoon,
     required this.showQuakes,
     required this.showRainRadar,
-    required this.showBarangayRain,
     required this.showFaults,
     required this.showAqi,
-    required this.showSevereWeather,
     required this.showLocalFacilities,
     required this.showLocalHazards,
     required this.onToggleFlood,
@@ -27,10 +25,8 @@ class CitizenMapLayersMenu extends StatelessWidget {
     required this.onToggleTyphoon,
     required this.onToggleQuakes,
     required this.onToggleRainRadar,
-    required this.onToggleBarangayRain,
     required this.onToggleFaults,
     required this.onToggleAqi,
-    required this.onToggleSevereWeather,
     required this.onToggleLocalFacilities,
     required this.onToggleLocalHazards,
   });
@@ -42,10 +38,8 @@ class CitizenMapLayersMenu extends StatelessWidget {
   final bool showTyphoon;
   final bool showQuakes;
   final bool showRainRadar;
-  final bool showBarangayRain;
   final bool showFaults;
   final bool showAqi;
-  final bool showSevereWeather;
   final bool showLocalFacilities;
   final bool showLocalHazards;
   final VoidCallback onToggleFlood;
@@ -54,10 +48,8 @@ class CitizenMapLayersMenu extends StatelessWidget {
   final VoidCallback onToggleTyphoon;
   final VoidCallback onToggleQuakes;
   final VoidCallback onToggleRainRadar;
-  final VoidCallback onToggleBarangayRain;
   final VoidCallback onToggleFaults;
   final VoidCallback onToggleAqi;
-  final VoidCallback onToggleSevereWeather;
   final VoidCallback onToggleLocalFacilities;
   final VoidCallback onToggleLocalHazards;
 
@@ -77,16 +69,10 @@ class CitizenMapLayersMenu extends StatelessWidget {
         onToggleLocalHazards,
       ),
       _LayerOptionData(
-        Icons.radar,
-        'Rain Radar',
+        Icons.cloudy_snowing,
+        'Heavy Rainfall',
         showRainRadar,
         onToggleRainRadar,
-      ),
-      _LayerOptionData(
-        Icons.water_drop,
-        'Barangay Rain Threat',
-        showBarangayRain,
-        onToggleBarangayRain,
       ),
       _LayerOptionData(
         Icons.water_drop_outlined,
@@ -125,12 +111,6 @@ class CitizenMapLayersMenu extends StatelessWidget {
         onToggleQuakes,
       ),
       _LayerOptionData(Icons.air, 'Air Quality', showAqi, onToggleAqi),
-      _LayerOptionData(
-        Icons.warning_amber,
-        'Severe Weather',
-        showSevereWeather,
-        onToggleSevereWeather,
-      ),
     ];
 
     return ClipRRect(

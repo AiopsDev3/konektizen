@@ -16,10 +16,8 @@ class CitizenMapLegends extends StatelessWidget {
     required this.showTyphoon,
     required this.showQuakes,
     required this.showRainRadar,
-    required this.showBarangayRain,
     required this.showFaults,
     required this.showAqi,
-    required this.showSevereWeather,
     required this.layerOpacityPercent,
     required this.onToggleFloodReturnPeriod,
     required this.onToggleStormSurgeAdvisory,
@@ -34,10 +32,8 @@ class CitizenMapLegends extends StatelessWidget {
   final bool showTyphoon;
   final bool showQuakes;
   final bool showRainRadar;
-  final bool showBarangayRain;
   final bool showFaults;
   final bool showAqi;
-  final bool showSevereWeather;
   final int layerOpacityPercent;
   final ValueChanged<int> onToggleFloodReturnPeriod;
   final ValueChanged<int> onToggleStormSurgeAdvisory;
@@ -52,10 +48,8 @@ class CitizenMapLegends extends StatelessWidget {
         showTyphoon ||
         showQuakes ||
         showRainRadar ||
-        showBarangayRain ||
         showFaults ||
-        showAqi ||
-        showSevereWeather;
+        showAqi;
     if (!hasLayer) return const SizedBox.shrink();
 
     final maxHeight = MediaQuery.sizeOf(context).height * 0.58;
@@ -86,9 +80,9 @@ class CitizenMapLegends extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                if (showRainRadar || showBarangayRain)
+                if (showRainRadar)
                   const _LegendSection(
-                    title: 'Rainfall Forecast',
+                    title: 'Heavy Rainfall',
                     rows: _rainfallRows,
                   ),
                 if (showFlood) ...[
@@ -149,22 +143,6 @@ class CitizenMapLegends extends StatelessWidget {
                         'Fault Trace',
                         'PHIVOLCS local asset',
                         Color(0xFFEF4444),
-                      ),
-                    ],
-                  ),
-                if (showSevereWeather)
-                  const _LegendSection(
-                    title: 'Severe Weather Status',
-                    rows: [
-                      _LegendRowData(
-                        'Severe possible',
-                        'Open-Meteo weather code >= 80',
-                        Color(0xFF8B5CF6),
-                      ),
-                      _LegendRowData(
-                        'No severe signal',
-                        'Current screening point',
-                        Color(0xFF22C55E),
                       ),
                     ],
                   ),

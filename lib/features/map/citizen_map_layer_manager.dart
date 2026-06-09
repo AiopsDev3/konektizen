@@ -6,7 +6,6 @@ import 'package:http/http.dart' as http;
 import 'package:konektizen/core/api/api_service.dart';
 import 'package:konektizen/features/map/c3_local_layers_overlay.dart';
 import 'package:konektizen/features/map/citizen_map_layer_data.dart';
-import 'package:konektizen/features/map/utils/brgy_rain_threat_util.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 class CitizenMapLayerManager {
@@ -15,6 +14,8 @@ class CitizenMapLayerManager {
   final MapLibreMapController? controller;
   final Set<String> addedSources;
   static final _assetGeoJsonCache = <String, Map<String, dynamic>>{};
+  static Map<String, dynamic>? _rainViewerFrameCache;
+  static DateTime? _rainViewerFrameFetchedAt;
 
   static void resetRuntimeState() {
     resetC3LocalLayerRuntimeState();
@@ -38,10 +39,8 @@ class CitizenMapLayerManager {
     required bool showTyphoon,
     required bool showQuakes,
     required bool showRainRadar,
-    required bool showBarangayRain,
     required bool showFaults,
     required bool showAqi,
-    required bool showSevereWeather,
     required bool showLocalFacilities,
     required bool showLocalHazards,
     required double layerOpacity,
@@ -69,10 +68,8 @@ class CitizenMapLayerManager {
     await _syncTyphoonLayer(showTyphoon, overlayBelowLayerId);
     await _syncQuakeLayer(showQuakes, overlayBelowLayerId);
     await _syncRainRadarLayer(showRainRadar, overlayBelowLayerId);
-    await _syncBarangayRainLayer(showBarangayRain, overlayBelowLayerId);
     await _syncFaultLayer(showFaults, overlayBelowLayerId);
     await _syncAqiLayer(showAqi, overlayBelowLayerId);
-    await _syncSevereWeatherLayer(showSevereWeather, overlayBelowLayerId);
 
     await syncC3LocalLayers(
       controller,
@@ -441,8 +438,8 @@ class CitizenMapLayerManager {
   }
 
   Future<void> _syncRainRadarLayer(bool show, String? belowLayerId) async {
-    const sourceId = 'rain-radar-source';
-    const layerId = 'rain-radar-layer';
+    const sourceId = 'heavy-rainfall-radar-source';
+    const layerId = 'heavy-rainfall-radar-layer';
     if (await _syncExistingVisibility(
       show: show,
       sourceId: sourceId,
@@ -452,99 +449,50 @@ class CitizenMapLayerManager {
     }
 
     try {
-      final res = await http
-          .get(Uri.parse('https://api.rainviewer.com/public/weather-maps.json'))
-          .timeout(const Duration(seconds: 5));
-      if (res.statusCode != 200) return;
-
-      final data = jsonDecode(res.body);
-      final path = data['radar']['past'].last['path'];
+      final tileUrl = await _latestRainViewerTileUrl();
+      if (tileUrl == null) return;
       await _ensureRasterLayer(
         sourceId: sourceId,
         layerId: layerId,
-        tiles: [
-          'https://tilecache.rainviewer.com$path/256/{z}/{x}/{y}/2/1_1.png',
-        ],
-        opacity: 0.6,
-        maxzoom: 6,
+        tiles: [tileUrl],
+        opacity: 0.58,
+        maxzoom: 10,
         belowLayerId: belowLayerId,
       );
     } catch (e) {
-      debugPrint('Rain radar fetch failed: $e');
+      debugPrint('Heavy rainfall RainViewer fetch failed: $e');
     }
   }
 
-  Future<void> _syncBarangayRainLayer(bool show, String? belowLayerId) async {
-    const sourceId = 'brgy-rain-source';
-    const layerIds = ['brgy-rain-fill', 'brgy-rain-line', 'brgy-rain-label'];
-    if (await _syncExistingVisibility(
-      show: show,
-      sourceId: sourceId,
-      layerIds: layerIds,
-    )) {
-      return;
+  Future<String?> _latestRainViewerTileUrl() async {
+    final cachedAt = _rainViewerFrameFetchedAt;
+    final now = DateTime.now();
+    if (_rainViewerFrameCache == null ||
+        cachedAt == null ||
+        now.difference(cachedAt) > const Duration(minutes: 5)) {
+      final res = await http
+          .get(Uri.parse('https://api.rainviewer.com/public/weather-maps.json'))
+          .timeout(const Duration(seconds: 5));
+      if (res.statusCode != 200) return null;
+      _rainViewerFrameCache = jsonDecode(res.body) as Map<String, dynamic>;
+      _rainViewerFrameFetchedAt = now;
     }
 
-    try {
-      final geoJson = await BrgyRainThreatUtil.fetchAndEnrich();
-      await controller?.addGeoJsonSource(sourceId, geoJson);
-      await controller?.addFillLayer(
-        sourceId,
-        'brgy-rain-fill',
-        const FillLayerProperties(
-          fillColor: [
-            Expressions.match,
-            [Expressions.get, 'rain_level'],
-            'very_high',
-            '#ef4444',
-            'high',
-            '#f97316',
-            'moderate',
-            '#eab308',
-            'low',
-            '#22c55e',
-            'minimal',
-            '#0ea5e9',
-            '#38bdf8',
-          ],
-          fillOpacity: 0.5,
-        ),
-        belowLayerId: belowLayerId,
-        enableInteraction: false,
-      );
-      await controller?.addLineLayer(
-        sourceId,
-        'brgy-rain-line',
-        const LineLayerProperties(lineColor: '#ffffff', lineWidth: 1.0),
-        belowLayerId: belowLayerId,
-        enableInteraction: false,
-      );
-      await controller?.addSymbolLayer(
-        sourceId,
-        'brgy-rain-label',
-        const SymbolLayerProperties(
-          textField: [
-            Expressions.concat,
-            [Expressions.get, 'brgy_name'],
-            '\n',
-            [
-              'to-string',
-              [Expressions.get, 'rain_24h_mm'],
-            ],
-            ' mm',
-          ],
-          textSize: 10,
-          textColor: '#111827',
-          textHaloColor: '#ffffff',
-          textHaloWidth: 1.2,
-        ),
-        belowLayerId: belowLayerId,
-        enableInteraction: false,
-      );
-      addedSources.add(sourceId);
-    } catch (e) {
-      debugPrint('Barangay rain threat fetch failed: $e');
-    }
+    final data = _rainViewerFrameCache;
+    if (data == null) return null;
+    final radar = data['radar'];
+    if (radar is! Map) return null;
+    final frames = radar['past'];
+    if (frames is! List || frames.isEmpty) return null;
+    final latest = frames.last;
+    if (latest is! Map) return null;
+    final path = latest['path']?.toString();
+    if (path == null || path.isEmpty) return null;
+    final host = data['host']?.toString();
+    final tileHost = (host == null || host.isEmpty)
+        ? 'https://tilecache.rainviewer.com'
+        : host;
+    return '$tileHost$path/256/{z}/{x}/{y}/2/1_1.png';
   }
 
   Future<void> _syncFaultLayer(bool show, String? belowLayerId) async {
@@ -578,7 +526,7 @@ class CitizenMapLayerManager {
 
   Future<void> _syncAqiLayer(bool show, String? belowLayerId) async {
     const sourceId = 'aqi-source';
-    const layerIds = ['aqi-layer', 'aqi-label'];
+    const layerIds = ['aqi-fill', 'aqi-outline', 'aqi-label'];
     if (await _syncExistingVisibility(
       show: show,
       sourceId: sourceId,
@@ -588,46 +536,25 @@ class CitizenMapLayerManager {
     }
 
     try {
-      final res = await http
-          .get(
-            Uri.parse('${ApiService.baseUrl}/weather/air-quality').replace(
-              queryParameters: const {'lat': '18.196', 'lon': '120.598'},
-            ),
-          )
-          .timeout(const Duration(seconds: 5));
-      if (res.statusCode != 200) return;
-
-      final payload = jsonDecode(res.body) as Map<String, dynamic>;
-      final data = Map<String, dynamic>.from(payload['data'] as Map? ?? {});
-      final aqi = (data['aqi'] as num?)?.round() ?? 0;
-      final color = _aqiColor(aqi);
-      await controller?.addGeoJsonSource(sourceId, {
-        'type': 'FeatureCollection',
-        'features': [
-          {
-            'type': 'Feature',
-            'geometry': {
-              'type': 'Point',
-              'coordinates': [120.598, 18.196],
-            },
-            'properties': {
-              'aqi': aqi,
-              'label': 'US AQI $aqi',
-              'color': color,
-              'radius': 42,
-            },
-          },
-        ],
-      });
-      await controller?.addCircleLayer(
+      final geoJson = await _buildAqiGridFeatureCollection();
+      await controller?.addGeoJsonSource(sourceId, geoJson);
+      await controller?.addFillLayer(
         sourceId,
-        'aqi-layer',
-        const CircleLayerProperties(
-          circleColor: [Expressions.get, 'color'],
-          circleRadius: [Expressions.get, 'radius'],
-          circleOpacity: 0.32,
-          circleStrokeColor: '#ffffff',
-          circleStrokeWidth: 1.4,
+        'aqi-fill',
+        const FillLayerProperties(
+          fillColor: [Expressions.get, 'color'],
+          fillOpacity: 0.42,
+        ),
+        belowLayerId: belowLayerId,
+        enableInteraction: false,
+      );
+      await controller?.addLineLayer(
+        sourceId,
+        'aqi-outline',
+        const LineLayerProperties(
+          lineColor: '#ffffff',
+          lineOpacity: 0.38,
+          lineWidth: 0.6,
         ),
         belowLayerId: belowLayerId,
         enableInteraction: false,
@@ -652,70 +579,161 @@ class CitizenMapLayerManager {
     }
   }
 
-  Future<void> _syncSevereWeatherLayer(bool show, String? belowLayerId) async {
-    const sourceId = 'severe-source';
-    const layerIds = ['severe-layer', 'severe-label'];
-    if (await _syncExistingVisibility(
-      show: show,
-      sourceId: sourceId,
-      layerIds: layerIds,
-    )) {
-      return;
+  Future<Map<String, dynamic>> _buildAqiGridFeatureCollection() async {
+    const latitudes = [18.13, 18.17, 18.21, 18.25];
+    const longitudes = [120.54, 120.58, 120.62, 120.66];
+    final points = <Map<String, double>>[];
+    for (final lat in latitudes) {
+      for (final lon in longitudes) {
+        points.add({'lat': lat, 'lon': lon});
+      }
     }
 
-    try {
-      final res = await http
-          .get(
-            Uri.parse(
-              'https://api.open-meteo.com/v1/forecast?latitude=18.196&longitude=120.598&current_weather=true',
-            ),
-          )
-          .timeout(const Duration(seconds: 5));
-      if (res.statusCode != 200) return;
+    final uri =
+        Uri.parse(
+          'https://air-quality-api.open-meteo.com/v1/air-quality',
+        ).replace(
+          queryParameters: {
+            'latitude': points
+                .map((point) => point['lat'].toString())
+                .join(','),
+            'longitude': points
+                .map((point) => point['lon'].toString())
+                .join(','),
+            'hourly': 'us_aqi,pm2_5,nitrogen_dioxide',
+            'timezone': 'Asia/Manila',
+            'forecast_days': '1',
+          },
+        );
+    final res = await http.get(uri).timeout(const Duration(seconds: 8));
+    if (res.statusCode != 200) {
+      throw Exception('Open-Meteo AQI status ${res.statusCode}');
+    }
 
-      final data = jsonDecode(res.body);
-      final severe = data['current_weather']['weathercode'] >= 80;
-      await controller?.addGeoJsonSource(sourceId, {
-        'type': 'FeatureCollection',
-        'features': [
-          laoagStatusFeature(
-            label: severe
-                ? 'Severe weather possible'
-                : 'No severe weather signal',
-            color: severe ? '#8b5cf6' : '#22c55e',
-            radius: severe ? 60 : 22,
-          ),
-        ],
+    final decoded = jsonDecode(res.body);
+    final entries = decoded is List ? decoded : [decoded];
+    final features = <Map<String, dynamic>>[];
+    for (var i = 0; i < entries.length && i < points.length; i++) {
+      final entry = Map<String, dynamic>.from(entries[i] as Map? ?? {});
+      final hourly = Map<String, dynamic>.from(entry['hourly'] as Map? ?? {});
+      final index = _nearestAqiIndex(hourly['time'] as List? ?? const []);
+      final aqi = _numAt(hourly['us_aqi'] as List? ?? const [], index);
+      if (aqi == null) continue;
+      final pm25 = _numAt(hourly['pm2_5'] as List? ?? const [], index);
+      final no2 = _numAt(
+        hourly['nitrogen_dioxide'] as List? ?? const [],
+        index,
+      );
+      final point = points[i];
+      final aqiValue = aqi.round();
+      features.add({
+        'type': 'Feature',
+        'geometry': _aqiCellPolygon(point['lat']!, point['lon']!),
+        'properties': {
+          'aqi': aqiValue,
+          'pm25': pm25,
+          'no2': no2,
+          'color': _aqiColor(aqiValue),
+          'label': 'AQI $aqiValue',
+          'source': 'Open-Meteo Air Quality',
+        },
       });
-      await controller?.addCircleLayer(
-        sourceId,
-        'severe-layer',
-        const CircleLayerProperties(
-          circleColor: [Expressions.get, 'color'],
-          circleRadius: [Expressions.get, 'radius'],
-          circleOpacity: 0.3,
-        ),
-        belowLayerId: belowLayerId,
-        enableInteraction: false,
-      );
-      await controller?.addSymbolLayer(
-        sourceId,
-        'severe-label',
-        const SymbolLayerProperties(
-          textField: [Expressions.get, 'label'],
-          textSize: 11,
-          textOffset: [0, 1.5],
-          textColor: '#111827',
-          textHaloColor: '#ffffff',
-          textHaloWidth: 1.4,
-        ),
-        belowLayerId: belowLayerId,
-        enableInteraction: false,
-      );
-      addedSources.add(sourceId);
-    } catch (e) {
-      debugPrint('Severe weather fetch failed: $e');
     }
+
+    if (features.isEmpty) {
+      final fallback = await _fallbackAqiFeatureCollection();
+      if ((fallback['features'] as List? ?? const []).isNotEmpty) {
+        return fallback;
+      }
+    }
+
+    return {'type': 'FeatureCollection', 'features': features};
+  }
+
+  Future<Map<String, dynamic>> _fallbackAqiFeatureCollection() async {
+    final res = await http
+        .get(
+          Uri.parse(
+            '${ApiService.baseUrl}/weather/air-quality',
+          ).replace(queryParameters: const {'lat': '18.196', 'lon': '120.598'}),
+        )
+        .timeout(const Duration(seconds: 5));
+    if (res.statusCode != 200) {
+      return {'type': 'FeatureCollection', 'features': []};
+    }
+    final payload = jsonDecode(res.body) as Map<String, dynamic>;
+    final data = Map<String, dynamic>.from(payload['data'] as Map? ?? {});
+    final aqi = (data['aqi'] as num?)?.round();
+    if (aqi == null) {
+      return {'type': 'FeatureCollection', 'features': []};
+    }
+
+    return {
+      'type': 'FeatureCollection',
+      'features': [
+        {
+          'type': 'Feature',
+          'geometry': _aqiCellPolygon(
+            18.196,
+            120.598,
+            latHalfSize: 0.055,
+            lonHalfSize: 0.065,
+          ),
+          'properties': {
+            'aqi': aqi,
+            'pm25': data['pm2_5'],
+            'no2': data['nitrogen_dioxide'],
+            'color': _aqiColor(aqi),
+            'label': 'AQI $aqi',
+            'source': data['sourceLabel'] ?? 'Open-Meteo Air Quality',
+          },
+        },
+      ],
+    };
+  }
+
+  Map<String, dynamic> _aqiCellPolygon(
+    double lat,
+    double lon, {
+    double latHalfSize = 0.025,
+    double lonHalfSize = 0.027,
+  }) {
+    return {
+      'type': 'Polygon',
+      'coordinates': [
+        [
+          [lon - lonHalfSize, lat - latHalfSize],
+          [lon + lonHalfSize, lat - latHalfSize],
+          [lon + lonHalfSize, lat + latHalfSize],
+          [lon - lonHalfSize, lat + latHalfSize],
+          [lon - lonHalfSize, lat - latHalfSize],
+        ],
+      ],
+    };
+  }
+
+  int _nearestAqiIndex(List<dynamic> times) {
+    if (times.isEmpty) return 0;
+    final now = DateTime.now();
+    var bestIndex = 0;
+    var bestDelta = 1 << 62;
+    for (var i = 0; i < times.length; i++) {
+      final parsed = DateTime.tryParse(times[i].toString());
+      if (parsed == null) continue;
+      final delta = parsed.difference(now).inMinutes.abs();
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        bestIndex = i;
+      }
+    }
+    return bestIndex;
+  }
+
+  num? _numAt(List<dynamic> values, int index) {
+    if (index < 0 || index >= values.length) return null;
+    final value = values[index];
+    if (value is num) return value;
+    return num.tryParse(value?.toString() ?? '');
   }
 
   Future<void> _syncGeoJsonFillLineLayer({

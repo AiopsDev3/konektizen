@@ -37,10 +37,8 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
   bool _showTyphoon = false;
   bool _showQuakes = false;
   bool _showRainRadar = false;
-  bool _showBarangayRain = false;
   bool _showFaults = false;
   bool _showAqi = false;
-  bool _showSevereWeather = false;
   bool _showLocalFacilities = false;
   bool _showLocalHazards = false;
   bool _showLegendsPanel = false;
@@ -99,10 +97,8 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
           showTyphoon: _showTyphoon,
           showQuakes: _showQuakes,
           showRainRadar: _showRainRadar,
-          showBarangayRain: _showBarangayRain,
           showFaults: _showFaults,
           showAqi: _showAqi,
-          showSevereWeather: _showSevereWeather,
           showLocalFacilities: _showLocalFacilities,
           showLocalHazards: _showLocalHazards,
           layerOpacity: _layerOpacityPercent / 100,
@@ -252,15 +248,7 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
     final next = !_showRainRadar;
     setState(() => _showRainRadar = next);
     _updateLayerVisibility(
-      loadingMessage: next ? 'Rain radar layer is loading...' : null,
-    );
-  }
-
-  void _toggleBarangayRain() {
-    final next = !_showBarangayRain;
-    setState(() => _showBarangayRain = next);
-    _updateLayerVisibility(
-      loadingMessage: next ? 'Barangay rain layer is loading...' : null,
+      loadingMessage: next ? 'Heavy rainfall layer is loading...' : null,
     );
   }
 
@@ -277,14 +265,6 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
     setState(() => _showAqi = next);
     _updateLayerVisibility(
       loadingMessage: next ? 'Air quality layer is loading...' : null,
-    );
-  }
-
-  void _toggleSevereWeather() {
-    final next = !_showSevereWeather;
-    setState(() => _showSevereWeather = next);
-    _updateLayerVisibility(
-      loadingMessage: next ? 'Severe weather layer is loading...' : null,
     );
   }
 
@@ -428,10 +408,8 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
                 showTyphoon: _showTyphoon,
                 showQuakes: _showQuakes,
                 showRainRadar: _showRainRadar,
-                showBarangayRain: _showBarangayRain,
                 showFaults: _showFaults,
                 showAqi: _showAqi,
-                showSevereWeather: _showSevereWeather,
                 layerOpacityPercent: _layerOpacityPercent,
                 onToggleFloodReturnPeriod: _toggleFloodReturnPeriod,
                 onToggleStormSurgeAdvisory: _toggleStormSurgeAdvisory,
@@ -450,10 +428,8 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
                 showTyphoon: _showTyphoon,
                 showQuakes: _showQuakes,
                 showRainRadar: _showRainRadar,
-                showBarangayRain: _showBarangayRain,
                 showFaults: _showFaults,
                 showAqi: _showAqi,
-                showSevereWeather: _showSevereWeather,
                 showLocalFacilities: _showLocalFacilities,
                 showLocalHazards: _showLocalHazards,
                 onToggleFlood: _toggleFlood,
@@ -462,10 +438,8 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
                 onToggleTyphoon: _toggleTyphoon,
                 onToggleQuakes: _toggleQuakes,
                 onToggleRainRadar: _toggleRainRadar,
-                onToggleBarangayRain: _toggleBarangayRain,
                 onToggleFaults: _toggleFaults,
                 onToggleAqi: _toggleAqi,
-                onToggleSevereWeather: _toggleSevereWeather,
                 onToggleLocalFacilities: _toggleLocalFacilities,
                 onToggleLocalHazards: _toggleLocalHazards,
               ),
