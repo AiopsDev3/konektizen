@@ -136,12 +136,18 @@ class SignalingService {
 
     print('[Signaling] Connecting to C3 Socket: $_serverUrl');
 
-    // MIMIC RESPONDER APP CONFIG EXACTLY
+    // C3 production currently serves Socket.IO over polling. Forcing polling
+    // avoids failed websocket upgrade loops that delay SOS call negotiation.
     socket = IO.io(_serverUrl, <String, dynamic>{
-      'transports': ['websocket', 'polling'],
+      'transports': ['polling'],
+      'upgrade': false,
+      'path': '/socket.io',
       'autoConnect': true,
       'reconnection': true,
-      'timeout': 10000,
+      'reconnectionAttempts': 999999,
+      'reconnectionDelay': 1000,
+      'reconnectionDelayMax': 5000,
+      'timeout': 20000,
       'forceNew': true,
     });
 

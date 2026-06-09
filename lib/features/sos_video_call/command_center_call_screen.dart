@@ -121,7 +121,17 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
       final configuration = {
         'iceServers': [
           {'urls': 'stun:stun.l.google.com:19302'},
+          {'urls': 'stun:stun1.l.google.com:19302'},
+          {
+            'urls': [
+              'turn:c3.aitelligenz.com:3478?transport=udp',
+              'turn:c3.aitelligenz.com:3478?transport=tcp',
+            ],
+            'username': 'c3sos',
+            'credential': 'C3sosRelay-2026-9pX4mT7q',
+          },
         ],
+        'iceTransportPolicy': 'all',
       };
 
       _peerConnection = await createPeerConnection(configuration);
@@ -230,8 +240,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
       if (room != null && _normalizeRoom(room) != _normalizeRoom(widget.callId)) {
         return;
       }
-      print('[KONEKTIZEN_SOS] Ready seen; refreshing room join');
-      _requestFreshOffer('ready');
+      print('[KONEKTIZEN_SOS] Ready seen for call room; waiting for C3 offer');
     });
 
     // LISTEN FOR UNIFIED SIGNALS (Camera/Mic)
@@ -274,11 +283,6 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
     if (socket == null) return;
     socket.emit('join-call', {
       'callId': widget.callId,
-      'role': 'citizen',
-      'reason': reason,
-    });
-    socket.emit('ready', {
-      'room': widget.callId,
       'role': 'citizen',
       'reason': reason,
     });

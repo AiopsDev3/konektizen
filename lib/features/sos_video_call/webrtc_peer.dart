@@ -10,7 +10,17 @@ class WebRTCManager {
   final Map<String, dynamic> _configuration = {
     'iceServers': [
       {'urls': 'stun:stun.l.google.com:19302'},
+      {'urls': 'stun:stun1.l.google.com:19302'},
+      {
+        'urls': [
+          'turn:c3.aitelligenz.com:3478?transport=udp',
+          'turn:c3.aitelligenz.com:3478?transport=tcp',
+        ],
+        'username': 'c3sos',
+        'credential': 'C3sosRelay-2026-9pX4mT7q',
+      },
     ],
+    'iceTransportPolicy': 'all',
   };
 
   Future<void> init() async {
