@@ -32,9 +32,11 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
   dynamic _pendingOffer;
   final List<dynamic> _pendingIceCandidates = [];
   bool _isConnecting = true;
+  bool _remoteDescriptionSet = false;
 
   // --- Timer State ---
   Timer? _timer;
+  Timer? _mediaRetryTimer;
   Timer? _locationHeartbeatTimer;
   StreamSubscription<Position>? _locationSubscription;
   int _secondsElapsed = 0;
@@ -63,6 +65,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _mediaRetryTimer?.cancel();
     _locationHeartbeatTimer?.cancel();
     _locationSubscription?.cancel();
     _localRenderer.dispose();
@@ -140,6 +143,24 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
         });
       };
 
+      _peerConnection!.onIceConnectionState = (state) {
+        print('[Call Screen] ICE state: $state');
+        if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+            state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+          if (mounted) {
+            setState(() => _isConnecting = false);
+          }
+          _mediaRetryTimer?.cancel();
+        }
+        if (state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
+            state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+          if (mounted) {
+            setState(() => _isConnecting = true);
+          }
+          _requestFreshOffer('ice_${state.name}');
+        }
+      };
+
       // 5. Handle Remote Stream
       _peerConnection!.onTrack = (event) {
         print('[Call Screen] Remote Track Received: ${event.track.kind}');
@@ -155,6 +176,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
       };
 
       _joinCallRoom();
+      _startMediaJoinRetries();
       if (_pendingOffer != null) {
         final offer = _pendingOffer;
         _pendingOffer = null;
@@ -181,6 +203,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
     // Remove old listeners to prevent duplication
     socket.off('offer');
     socket.off('ice-candidate');
+    socket.off('ready');
     socket.off('end-call');
     socket.off(
       'signal',
@@ -194,69 +217,21 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
         return;
       }
       print('[KONEKTIZEN_SOS] 📨 Received OFFER from C3');
-      if (data is! Map) {
-        print('[Call Screen] ❌ Offer data invalid: $data');
-        return;
-      }
-      try {
-        String sdp;
-        String type = 'offer';
-
-        final rawSdp = data['sdp'];
-        if (rawSdp is Map) {
-          sdp = rawSdp['sdp'];
-          type = rawSdp['type'] ?? 'offer';
-        } else if (rawSdp is String) {
-          sdp = rawSdp;
-          // If backend sent {sdp: "...", type: "offer"} at top level
-          if (data['type'] != null) {
-            type = data['type'];
-          }
-        } else {
-          print('[Call Screen] ❌ SDP data unknown format: $rawSdp');
-          return;
-        }
-
-        await _peerConnection!.setRemoteDescription(
-          RTCSessionDescription(sdp, type),
-        );
-
-        // Create Answer
-        final answer = await _peerConnection!.createAnswer();
-        await _peerConnection!.setLocalDescription(answer);
-
-        // Send Answer
-        socket.emit('answer', {
-          'room': widget.callId,
-          'sdp': {'type': answer.type, 'sdp': answer.sdp},
-        });
-        print('[KONEKTIZEN_SOS] 📤 Sent ANSWER to room: ${widget.callId}');
-      } catch (e) {
-        print('[Call Screen] ❌ Handle Offer Error: $e');
-      }
+      await _handleOffer(data);
     });
 
     // Listen for ICE Candidates
     socket.on('ice-candidate', (data) {
-      if (_peerConnection == null) {
-        _pendingIceCandidates.add(data);
+      _handleIceCandidate(data);
+    });
+
+    socket.on('ready', (data) {
+      final room = data is Map ? (data['room'] ?? data['callId']) : null;
+      if (room != null && _normalizeRoom(room) != _normalizeRoom(widget.callId)) {
         return;
       }
-      if (_peerConnection != null && data is Map) {
-        try {
-          final candidateData = data['candidate'];
-          if (candidateData is Map) {
-            final candidate = RTCIceCandidate(
-              candidateData['candidate'],
-              candidateData['sdpMid'],
-              candidateData['sdpMLineIndex'],
-            );
-            _peerConnection!.addCandidate(candidate);
-          }
-        } catch (e) {
-          print('[Call Screen] ❌ ICE Error: $e');
-        }
-      }
+      print('[KONEKTIZEN_SOS] Ready seen; refreshing room join');
+      _requestFreshOffer('ready');
     });
 
     // LISTEN FOR UNIFIED SIGNALS (Camera/Mic)
@@ -287,6 +262,39 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
       '[KONEKTIZEN_SOS] Joining call room after WebRTC ready: ${widget.callId}',
     );
     socket.emit('join-call', {'callId': widget.callId, 'role': 'citizen'});
+  }
+
+  String _normalizeRoom(dynamic value) {
+    final text = value?.toString() ?? '';
+    return text.startsWith('call_') ? text.substring(5) : text;
+  }
+
+  void _requestFreshOffer(String reason) {
+    final socket = SignalingService.instance.socket;
+    if (socket == null) return;
+    socket.emit('join-call', {
+      'callId': widget.callId,
+      'role': 'citizen',
+      'reason': reason,
+    });
+    socket.emit('ready', {
+      'room': widget.callId,
+      'role': 'citizen',
+      'reason': reason,
+    });
+  }
+
+  void _startMediaJoinRetries() {
+    _mediaRetryTimer?.cancel();
+    var attempts = 0;
+    _mediaRetryTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      if (!_isConnecting || _remoteRenderer.srcObject != null || attempts >= 8) {
+        timer.cancel();
+        return;
+      }
+      attempts += 1;
+      _requestFreshOffer('media_wait_$attempts');
+    });
   }
 
   Future<void> _handleOffer(dynamic data) async {
@@ -321,6 +329,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
       if (sdp.isEmpty) return;
 
       await pc.setRemoteDescription(RTCSessionDescription(sdp, type));
+      _remoteDescriptionSet = true;
 
       final answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -338,7 +347,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
 
   void _handleIceCandidate(dynamic data) {
     final pc = _peerConnection;
-    if (pc == null) {
+    if (pc == null || !_remoteDescriptionSet) {
       _pendingIceCandidates.add(data);
       return;
     }
