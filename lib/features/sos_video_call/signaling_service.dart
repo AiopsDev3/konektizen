@@ -136,20 +136,22 @@ class SignalingService {
 
     print('[Signaling] Connecting to C3 Socket: $_serverUrl');
 
-    // C3 production currently serves Socket.IO over polling. Forcing polling
-    // avoids failed websocket upgrade loops that delay SOS call negotiation.
-    socket = IO.io(_serverUrl, <String, dynamic>{
-      'transports': ['polling'],
-      'upgrade': false,
-      'path': '/socket.io',
-      'autoConnect': true,
-      'reconnection': true,
-      'reconnectionAttempts': 999999,
-      'reconnectionDelay': 1000,
-      'reconnectionDelayMax': 5000,
-      'timeout': 20000,
-      'forceNew': true,
-    });
+    // Flutter socket_io_client uses the native WebSocket path on Android/iOS.
+    // C3 must run Flask-SocketIO with eventlet so this can connect cleanly.
+    socket = IO.io(
+      _serverUrl,
+      IO.OptionBuilder()
+          .setTransports(['websocket'])
+          .setPath('/socket.io')
+          .enableAutoConnect()
+          .enableReconnection()
+          .setReconnectionAttempts(999999)
+          .setReconnectionDelay(1000)
+          .setReconnectionDelayMax(5000)
+          .setTimeout(20000)
+          .enableForceNew()
+          .build(),
+    );
 
     socket!.onConnect((_) {
       print('[Signaling] ========================================');
