@@ -17,6 +17,20 @@ class ServerConnectionConfig extends ChangeNotifier {
   String get origin => _origin;
   String get apiBaseUrl => '$_origin/api';
   String get signalingUrl => _origin;
+  String get videoApiBaseUrl {
+    const override = String.fromEnvironment('VIDEO_CONFERENCE_API_URL');
+    if (override.trim().isNotEmpty) {
+      return _trimTrailingSlash(override.trim());
+    }
+
+    final parsed = Uri.parse(_origin);
+    final uri = Uri(
+      scheme: parsed.scheme.isEmpty ? 'http' : parsed.scheme,
+      host: parsed.host,
+      port: 3000,
+    );
+    return _trimTrailingSlash(uri.toString());
+  }
 
   Future<void> load() async {
     final saved = await _storage.read(key: _storageKey);
@@ -70,5 +84,9 @@ class ServerConnectionConfig extends ChangeNotifier {
     final normalized = parsed.replace(path: '', query: null, fragment: null);
     final text = normalized.toString();
     return text.endsWith('/') ? text.substring(0, text.length - 1) : text;
+  }
+
+  static String _trimTrailingSlash(String value) {
+    return value.endsWith('/') ? value.substring(0, value.length - 1) : value;
   }
 }

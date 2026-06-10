@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart';
+
 import 'package:flutter/services.dart';
 
 class PiPOverlay {
@@ -9,7 +9,6 @@ class PiPOverlay {
 
   static Future<void> show({
     required BuildContext context,
-    required RTCVideoRenderer localRenderer,
     required VoidCallback onTap,
     required VoidCallback onClose,
   }) async {

@@ -14,13 +14,8 @@ class SignalingService {
   SignalingService._internal();
 
   IO.Socket? socket;
-  Function(dynamic)? onOffer;
-  Function(dynamic)? onAnswer;
-  Function(dynamic)? onIceCandidate;
-  Function(bool)? onCameraToggle;
-  Function(bool)? onMicToggle; // [NEW] Sync mute state
-  Function()? onEndCall;
   Function(Map<String, dynamic>)? onCallDeclined;
+  String? _activeAcceptedCallId;
 
   // C3 Command Center URL. Read dynamically so Settings changes apply before
   // the next socket connection without rebuilding the app.
@@ -76,29 +71,46 @@ class SignalingService {
       print('[Signaling] 📦 EVENT DATA: $data');
     });
     socket!.off('call_accepted');
+    socket!.off('c3_sos_ack');
     socket!.off('call_declined');
     socket!.off('sos_dismissed');
 
-    // C3 Spec: Listen for call_accepted (from accept_sos flow)
-    socket!.on('call_accepted', (data) {
+    void openAcceptedCall(dynamic data, {bool requireReporterMatch = false}) {
+      final payload = data is Map
+          ? Map<String, dynamic>.from(data)
+          : <String, dynamic>{};
+
+      if (requireReporterMatch) {
+        final reporterId =
+            payload['reporter_id']?.toString() ??
+            payload['reporterId']?.toString();
+        if (reporterId == null || reporterId != _userId) {
+          print('[Signaling] Ignoring SOS ack for reporter: $reporterId');
+          return;
+        }
+      }
+
       print('[Signaling] 🔔 ========== CALL ACCEPTED RECEIVED ==========');
-      print('[Signaling] Call Data: $data');
+      print('[Signaling] Call Data: $payload');
 
       // Extract callId and operatorName from C3 payload
       final callId =
-          data['callId']?.toString() ??
-          data['call_id']?.toString() ??
+          payload['callId']?.toString() ??
+          payload['call_id']?.toString() ??
+          payload['room']?.toString() ??
           "incoming";
-      final room = data['room']?.toString() ?? callId;
+      final room = payload['room']?.toString() ?? callId;
       final operatorName =
-          data['operatorName']?.toString() ?? "Command Center SOS";
+          payload['operatorName']?.toString() ?? "Command Center SOS";
+
+      if (_activeAcceptedCallId == room) {
+        print('[Signaling] Call screen already open for room: $room');
+        return;
+      }
+      _activeAcceptedCallId = room;
 
       print('[Signaling] Parsed callId: $callId');
       print('[Signaling] Parsed room: $room');
-
-      // CRITICAL: Immediately emit join-call to join WebRTC room
-      print('[Signaling] Emitting join-call to room: $room');
-      socket!.emit('join-call', {'callId': room, 'role': 'citizen'});
 
       if (rootNavigatorKey.currentState != null) {
         rootNavigatorKey.currentState!.push(
@@ -110,6 +122,21 @@ class SignalingService {
           ),
         );
       }
+    }
+
+    // C3 Spec: Listen for call_accepted (from accept_sos flow)
+    socket!.on('call_accepted', (data) {
+      openAcceptedCall(data);
+    });
+
+    // Fallback: some devices receive the global accepted ACK before/more reliably
+    // than the targeted reporter-room call_accepted event.
+    socket!.on('c3_sos_ack', (data) {
+      final payload = data is Map
+          ? Map<String, dynamic>.from(data)
+          : <String, dynamic>{};
+      if (payload['action']?.toString() != 'accepted') return;
+      openAcceptedCall(payload, requireReporterMatch: true);
     });
 
     void handleDeclined(dynamic data) {
@@ -177,105 +204,11 @@ class SignalingService {
     });
   }
 
-  // Legacy connect method (for accepting call logic inside CallScreen if needed)
-  void connect(String callId, String token, String role) {
-    // Re-use connection if possible, but usually Call Screen inits its own specific listeners?
-    // For now, let's keep it creating a connection if one doesn't exist, or re-using.
-    if (socket == null || !socket!.connected) {
-      connectToSocket();
-    }
-
-    socket!.onConnect((_) {
-      print('[Signaling] Emitting join-call event...');
-      socket!.emit('join-call', {
-        'callId': callId,
-        'token': token,
-        'role': role,
-      });
-    });
-
-    // Unified signal listener (C3 spec)
-    socket!.on('signal', (data) {
-      print('[Signaling] Received signal: ${data['type']}');
-      final type = data['type'];
-      final payload = data['payload'];
-
-      switch (type) {
-        case 'offer':
-          onOffer?.call(payload);
-          break;
-        case 'answer':
-          onAnswer?.call(payload);
-          break;
-        case 'ice':
-          onIceCandidate?.call(payload);
-          break;
-        case 'camera':
-          final enabled = payload['enabled'] ?? false;
-          onCameraToggle?.call(enabled);
-          break;
-        case 'mic':
-          // payload.enabled means "mic is enabled" (not muted)
-          final enabled = payload['enabled'] ?? true;
-          onMicToggle?.call(enabled);
-          break;
-      }
-    });
-
-    socket!.on('call_ended', (_) {
-      print('[Signaling] Received call_ended');
-      onEndCall?.call();
-    });
-
-    socket!.on('call-expired', (_) {
-      print('[Signaling] Call expired');
-      onEndCall?.call();
-    });
-
-    socket!.on('error', (data) {
-      print('[Signaling] ERROR from server: $data');
-    });
-  }
-
-  // Unified signal sender (C3 spec)
-  void sendSignal({
-    required String to,
-    required dynamic reporterId, // [CHANGED] Allow String or int
-    required String callId,
-    required String type,
-    required Map<String, dynamic> payload,
-  }) {
-    socket!.emit('signal', {
-      'to': to,
-      'reporter_id': reporterId,
-      'call_id': callId,
-      'type': type,
-      'payload': payload,
-    });
-    print('[Signaling] Sent signal: $type');
-  }
-
-  // Legacy methods for backward compatibility
-  void sendOffer(String room, dynamic sdp) {
-    // Note: This is legacy, prefer sendSignal
-    socket!.emit('offer', {'room': room, 'sdp': sdp});
-  }
-
-  void sendAnswer(String room, dynamic sdp) {
-    socket!.emit('answer', {'room': room, 'sdp': sdp});
-  }
-
-  void sendIceCandidate(String room, dynamic candidate) {
-    socket!.emit('ice-candidate', {'room': room, 'candidate': candidate});
-  }
-
   void endCall(String room) {
-    socket!.emit('call_ended', {'room': room});
-    // Do not dispose, keep listening for next call?
-    // For now, we dispose to be clean.
-    // dispose();
-    // BUT if we dispose, we lose the listener!
-    // So maybe just leave room?
+    socket?.emit('call_ended', {'room': room, 'call_id': room});
+    if (_activeAcceptedCallId == room) {
+      _activeAcceptedCallId = null;
+    }
   }
 
   void sendReporterLocation({
@@ -305,6 +238,7 @@ class SignalingService {
   void dispose() {
     print('[Signaling] Disposing socket connection');
     if (socket != null) {
+      _activeAcceptedCallId = null;
       socket!.disconnect();
       socket!.dispose();
       socket = null;
