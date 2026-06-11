@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:livekit_client/livekit_client.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:konektizen/core/services/location_service.dart';
 import 'package:konektizen/features/sos_video_call/livekit_token_service.dart';
 import 'package:konektizen/features/sos_video_call/signaling_service.dart';
@@ -34,6 +35,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
   StreamSubscription<Position>? _locationSubscription;
   bool _isLocationSharingActive = false;
   bool _isConnecting = true;
+  bool _isEnding = false;
   String? _error;
 
   @override
@@ -48,6 +50,10 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
       ..on<TrackMutedEvent>((_) => _refresh())
       ..on<TrackUnmutedEvent>((_) => _refresh());
     _connectToLiveKit();
+    SignalingService.instance.joinCallRoom(widget.callId, role: 'reporter');
+    SignalingService.instance.socket?.on('end-call', _handleRemoteEndCall);
+    SignalingService.instance.socket?.on('call_ended', _handleRemoteEndCall);
+    WakelockPlus.enable();
     _startLocationSharing();
   }
 
@@ -57,6 +63,9 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
     _locationSubscription?.cancel();
     _room.removeListener(_refresh);
     _listener?.dispose();
+    SignalingService.instance.socket?.off('end-call', _handleRemoteEndCall);
+    SignalingService.instance.socket?.off('call_ended', _handleRemoteEndCall);
+    WakelockPlus.disable();
     _room.dispose();
     super.dispose();
   }
@@ -80,8 +89,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
       );
 
       await _room.connect(token.liveKitUrl, token.token);
-      await _room.localParticipant?.setMicrophoneEnabled(true);
-      await _room.localParticipant?.setCameraEnabled(widget.startWithCamera);
+      unawaited(_publishLocalMediaWithRetry());
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -91,7 +99,72 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
     }
   }
 
+  Future<void> _publishLocalMediaWithRetry() async {
+    for (var attempt = 0; attempt < 30; attempt += 1) {
+      if (_isEnding) return;
+      final delayMs = attempt == 0
+          ? 0
+          : (2000 + attempt * 1000 > 10000 ? 10000 : 2000 + attempt * 1000);
+      if (delayMs > 0) {
+        await Future.delayed(Duration(milliseconds: delayMs));
+      }
+      if (_isEnding) return;
+
+      final participant = _room.localParticipant;
+      if (participant == null) continue;
+
+      try {
+        if (!participant.isMicrophoneEnabled()) {
+          await participant.setMicrophoneEnabled(true);
+        }
+        if (widget.startWithCamera && !participant.isCameraEnabled()) {
+          await participant.setCameraEnabled(true);
+        }
+        _refresh();
+        return;
+      } catch (e) {
+        print('[Call Screen] Media publish retry failed: $e');
+      }
+    }
+  }
+
+  bool _isPayloadForThisCall(dynamic data) {
+    if (data is! Map) return false;
+    final payload = Map<String, dynamic>.from(data);
+    final payloadCallId =
+        payload['room']?.toString() ??
+        payload['call_id']?.toString() ??
+        payload['callId']?.toString() ??
+        payload['id']?.toString();
+    return payloadCallId == widget.callId;
+  }
+
+  Future<void> _closeFromRemoteEnd() async {
+    if (_isEnding) return;
+    _isEnding = true;
+    SignalingService.instance.markCallEnded(widget.callId);
+    await _room.disconnect();
+    if (!mounted) return;
+
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Command Center ended the call.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    context.go('/home');
+  }
+
+  void _handleRemoteEndCall(dynamic data) {
+    if (!_isPayloadForThisCall(data)) return;
+    _closeFromRemoteEnd();
+  }
+
   Future<void> _endCall() async {
+    if (_isEnding) return;
+    _isEnding = true;
     SignalingService.instance.endCall(widget.callId);
     await _room.disconnect();
     if (mounted) {
@@ -152,11 +225,17 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
   @override
   Widget build(BuildContext context) {
     final local = _room.localParticipant;
-    final participants = <Participant>[
+    final remoteParticipants = <Participant>[
       ..._room.remoteParticipants.values,
+    ];
+    final participants = <Participant>[
+      ...remoteParticipants,
       if (local != null) local,
     ];
-    final mainParticipant = participants.isNotEmpty ? participants.first : null;
+    final mainParticipant = remoteParticipants.isNotEmpty
+        ? remoteParticipants.first
+        : (participants.isNotEmpty ? participants.first : null);
+    final localPreview = local != null && remoteParticipants.isNotEmpty ? local : null;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -176,23 +255,29 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
                   : _ParticipantTile(participant: mainParticipant),
             ),
             Positioned(
-              left: 16,
-              right: 16,
-              top: 16,
-              child: _CallHeader(
-                title: widget.operatorName ?? 'Command Center SOS',
-                subtitle: widget.callId,
-              ),
+              left: 0,
+              right: 0,
+              top: 0,
+              child: _CallHeader(subtitle: widget.callId),
             ),
-            if (participants.length > 1)
+            if (localPreview != null)
               Positioned(
                 right: 16,
-                bottom: 104,
-                width: 128,
-                height: 172,
+                top: 84,
+                width: 118,
+                height: 158,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),
-                  child: _ParticipantTile(participant: participants.last),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.white24),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: _ParticipantTile(
+                      participant: localPreview,
+                      compact: true,
+                    ),
+                  ),
                 ),
               ),
             Positioned(
@@ -230,8 +315,9 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
 
 class _ParticipantTile extends StatelessWidget {
   final Participant participant;
+  final bool compact;
 
-  const _ParticipantTile({required this.participant});
+  const _ParticipantTile({required this.participant, this.compact = false});
 
   VideoTrack? _videoTrack() {
     for (final publication in participant.videoTrackPublications) {
@@ -274,9 +360,9 @@ class _ParticipantTile extends StatelessWidget {
             ),
           ),
         Positioned(
-          left: 12,
-          right: 12,
-          bottom: 12,
+          left: compact ? 8 : 12,
+          right: compact ? 8 : 12,
+          bottom: compact ? 8 : 12,
           child: Row(
             children: [
               Icon(
@@ -284,16 +370,17 @@ class _ParticipantTile extends StatelessWidget {
                 color: participant.isMicrophoneEnabled()
                     ? Colors.greenAccent
                     : Colors.redAccent,
-                size: 18,
+                size: compact ? 16 : 18,
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: compact ? 6 : 8),
               Expanded(
                 child: Text(
-                  name,
+                  compact ? 'You' : name,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
+                    fontSize: compact ? 12 : 14,
                     shadows: [Shadow(blurRadius: 6)],
                   ),
                 ),
@@ -307,39 +394,60 @@ class _ParticipantTile extends StatelessWidget {
 }
 
 class _CallHeader extends StatelessWidget {
-  final String title;
   final String subtitle;
 
-  const _CallHeader({required this.title, required this.subtitle});
+  const _CallHeader({required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.black54,
-        borderRadius: BorderRadius.circular(14),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 18, 148, 18),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xCC000000), Color(0x00000000)],
+        ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: DefaultTextStyle(
+        style: const TextStyle(color: Colors.white),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              title,
+              'Command Center',
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
+                fontSize: 22,
                 fontWeight: FontWeight.bold,
+                shadows: [Shadow(blurRadius: 8)],
               ),
             ),
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-            ),
+            const SizedBox(height: 4),
+            _CallIdText(subtitle: subtitle),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _CallIdText extends StatelessWidget {
+  final String subtitle;
+
+  const _CallIdText({required this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      subtitle,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        color: Colors.white70,
+        fontSize: 13,
+        letterSpacing: 0.4,
+        shadows: [Shadow(blurRadius: 8)],
       ),
     );
   }

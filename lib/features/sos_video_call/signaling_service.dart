@@ -108,6 +108,7 @@ class SignalingService {
         return;
       }
       _activeAcceptedCallId = room;
+      joinCallRoom(room, role: 'reporter');
 
       print('[Signaling] Parsed callId: $callId');
       print('[Signaling] Parsed room: $room');
@@ -190,6 +191,9 @@ class SignalingService {
         print('[Signaling] Auto-joining reporter room: reporter_$_userId');
         socket!.emit('join_reporter', {'reporter_id': _userId});
       }
+      if (_activeAcceptedCallId != null) {
+        joinCallRoom(_activeAcceptedCallId!, role: 'reporter');
+      }
       print('[Signaling] ========================================');
     });
 
@@ -205,7 +209,31 @@ class SignalingService {
   }
 
   void endCall(String room) {
-    socket?.emit('call_ended', {'room': room, 'call_id': room});
+    socket?.emit('call_ended', {
+      'room': room,
+      'call_id': room,
+      'callId': room,
+      'ended_by': 'reporter',
+    });
+    if (_activeAcceptedCallId == room) {
+      _activeAcceptedCallId = null;
+    }
+  }
+
+  void joinCallRoom(String room, {String role = 'reporter'}) {
+    if (socket == null || !(socket!.connected)) {
+      return;
+    }
+    socket!.emit('join-call', {
+      'room': room,
+      'callId': room,
+      'call_id': room,
+      'role': role,
+      if (_userId != null) 'reporter_id': _userId,
+    });
+  }
+
+  void markCallEnded(String room) {
     if (_activeAcceptedCallId == room) {
       _activeAcceptedCallId = null;
     }
