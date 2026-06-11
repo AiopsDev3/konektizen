@@ -24,8 +24,19 @@ class ServerConnectionConfig extends ChangeNotifier {
     }
 
     final parsed = Uri.parse(_origin);
+    final scheme = parsed.scheme.isEmpty ? 'http' : parsed.scheme;
+    if (scheme == 'https') {
+      final uri = Uri(
+        scheme: scheme,
+        host: parsed.host,
+        port: parsed.hasPort ? parsed.port : null,
+        path: 'video-api',
+      );
+      return _trimTrailingSlash(uri.toString());
+    }
+
     final uri = Uri(
-      scheme: parsed.scheme.isEmpty ? 'http' : parsed.scheme,
+      scheme: scheme,
       host: parsed.host,
       port: 3000,
     );
