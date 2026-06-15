@@ -26,29 +26,23 @@ class CommandCenterCallScreen extends StatefulWidget {
 }
 
 class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
-  final Room _room = Room(
-    roomOptions: const RoomOptions(adaptiveStream: true, dynacast: true),
-  );
+  late Room _room;
 
   EventsListener<RoomEvent>? _listener;
+  Timer? _reconnectTimer;
   Timer? _locationHeartbeatTimer;
   StreamSubscription<Position>? _locationSubscription;
   bool _isLocationSharingActive = false;
   bool _isConnecting = true;
   bool _isEnding = false;
+  bool _isReconnectScheduled = false;
+  int _reconnectAttempt = 0;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _room.addListener(_refresh);
-    _listener = _room.createListener()
-      ..on<ParticipantEvent>((_) => _refresh())
-      ..on<RoomDisconnectedEvent>((_) => _refresh())
-      ..on<TrackSubscribedEvent>((_) => _refresh())
-      ..on<TrackUnsubscribedEvent>((_) => _refresh())
-      ..on<TrackMutedEvent>((_) => _refresh())
-      ..on<TrackUnmutedEvent>((_) => _refresh());
+    _createRoom();
     _connectToLiveKit();
     SignalingService.instance.joinCallRoom(widget.callId, role: 'reporter');
     SignalingService.instance.socket?.on('end-call', _handleRemoteEndCall);
@@ -59,10 +53,11 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
 
   @override
   void dispose() {
+    _isEnding = true;
+    _reconnectTimer?.cancel();
     _locationHeartbeatTimer?.cancel();
     _locationSubscription?.cancel();
-    _room.removeListener(_refresh);
-    _listener?.dispose();
+    _disposeRoomListeners();
     SignalingService.instance.socket?.off('end-call', _handleRemoteEndCall);
     SignalingService.instance.socket?.off('call_ended', _handleRemoteEndCall);
     WakelockPlus.disable();
@@ -74,13 +69,105 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _connectToLiveKit() async {
+  void _createRoom() {
+    _room = Room(
+      roomOptions: const RoomOptions(adaptiveStream: true, dynacast: true),
+    );
+    _room.addListener(_refresh);
+    _listener = _room.createListener()
+      ..on<ParticipantEvent>((_) => _refresh())
+      ..on<RoomConnectedEvent>((_) {
+        _reconnectAttempt = 0;
+        _isReconnectScheduled = false;
+        _refresh();
+      })
+      ..on<RoomReconnectedEvent>((_) {
+        _reconnectAttempt = 0;
+        _isReconnectScheduled = false;
+        _refresh();
+        unawaited(_publishLocalMediaWithRetry());
+      })
+      ..on<RoomAttemptReconnectEvent>((event) {
+        if (!mounted) return;
+        setState(() {
+          _error =
+              'Connection interrupted. Reconnecting (${event.attempt}/${event.maxAttemptsRetry})...';
+        });
+      })
+      ..on<RoomDisconnectedEvent>((event) {
+        _refresh();
+        if (!_shouldReconnectAfterDisconnect(event.reason)) return;
+        _scheduleReconnect(reason: event.reason);
+      })
+      ..on<TrackSubscribedEvent>((_) => _refresh())
+      ..on<TrackUnsubscribedEvent>((_) => _refresh())
+      ..on<TrackMutedEvent>((_) => _refresh())
+      ..on<TrackUnmutedEvent>((_) => _refresh());
+  }
+
+  void _disposeRoomListeners() {
+    _room.removeListener(_refresh);
+    _listener?.dispose();
+    _listener = null;
+  }
+
+  bool _shouldReconnectAfterDisconnect(DisconnectReason? reason) {
+    if (_isEnding || !mounted) return false;
+    if (reason == DisconnectReason.clientInitiated ||
+        reason == DisconnectReason.duplicateIdentity ||
+        reason == DisconnectReason.participantRemoved ||
+        reason == DisconnectReason.roomDeleted) {
+      return false;
+    }
+    return true;
+  }
+
+  void _scheduleReconnect({DisconnectReason? reason}) {
+    if (_isReconnectScheduled || _isEnding || !mounted) return;
+    _isReconnectScheduled = true;
+    _reconnectAttempt += 1;
+    final delaySeconds = _reconnectAttempt < 6 ? _reconnectAttempt * 2 : 12;
+
     setState(() {
       _isConnecting = true;
-      _error = null;
+      _error =
+          'Connection interrupted. Reconnecting in ${delaySeconds}s...';
+    });
+
+    debugPrint(
+      '[Call Screen] LiveKit disconnected unexpectedly: $reason. '
+      'Reconnect attempt $_reconnectAttempt in ${delaySeconds}s.',
+    );
+
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(Duration(seconds: delaySeconds), () {
+      if (_isEnding || !mounted) return;
+      _isReconnectScheduled = false;
+      unawaited(_connectToLiveKit(isReconnect: true));
+    });
+  }
+
+  Future<void> _resetRoomForReconnect() async {
+    _disposeRoomListeners();
+    try {
+      await _room.disconnect();
+    } catch (_) {}
+    try {
+      await _room.dispose();
+    } catch (_) {}
+    _createRoom();
+  }
+
+  Future<void> _connectToLiveKit({bool isReconnect = false}) async {
+    setState(() {
+      _isConnecting = true;
+      _error = isReconnect ? 'Reconnecting to Command Center...' : null;
     });
 
     try {
+      if (isReconnect) {
+        await _resetRoomForReconnect();
+      }
       final suffix = DateTime.now().millisecondsSinceEpoch;
       final participantName = 'Citizen SOS $suffix';
       final token = await liveKitTokenService.createToken(
@@ -89,12 +176,18 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
       );
 
       await _room.connect(token.liveKitUrl, token.token);
+      SignalingService.instance.joinCallRoom(widget.callId, role: 'reporter');
+      _reconnectAttempt = 0;
+      _isReconnectScheduled = false;
       unawaited(_publishLocalMediaWithRetry());
     } catch (e) {
       _error = e.toString();
+      if (isReconnect) {
+        _scheduleReconnect();
+      }
     } finally {
       if (mounted) {
-        setState(() => _isConnecting = false);
+        setState(() => _isConnecting = _isReconnectScheduled);
       }
     }
   }
