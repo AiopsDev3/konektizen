@@ -79,12 +79,21 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
       ..on<RoomConnectedEvent>((_) {
         _reconnectAttempt = 0;
         _isReconnectScheduled = false;
-        _refresh();
+        if (!mounted) return;
+        setState(() {
+          _isConnecting = false;
+          _error = null;
+        });
       })
       ..on<RoomReconnectedEvent>((_) {
         _reconnectAttempt = 0;
         _isReconnectScheduled = false;
-        _refresh();
+        if (mounted) {
+          setState(() {
+            _isConnecting = false;
+            _error = null;
+          });
+        }
         unawaited(_publishLocalMediaWithRetry());
       })
       ..on<RoomAttemptReconnectEvent>((event) {
@@ -182,9 +191,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
       unawaited(_publishLocalMediaWithRetry());
     } catch (e) {
       _error = e.toString();
-      if (isReconnect) {
-        _scheduleReconnect();
-      }
+      _scheduleReconnect();
     } finally {
       if (mounted) {
         setState(() => _isConnecting = _isReconnectScheduled);
@@ -216,7 +223,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
         _refresh();
         return;
       } catch (e) {
-        print('[Call Screen] Media publish retry failed: $e');
+        debugPrint('[Call Screen] Media publish retry failed: $e');
       }
     }
   }
@@ -281,7 +288,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen> {
         accuracy: position.accuracy,
       );
     } catch (e) {
-      print('[Call Screen] Location send error: $e');
+      debugPrint('[Call Screen] Location send error: $e');
     }
   }
 
