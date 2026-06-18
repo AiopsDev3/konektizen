@@ -1,10 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:konektizen/core/config/server_connection_config.dart';
 
+class C3ServerSelection {
+  const C3ServerSelection({required this.origin, this.videoApiUrl});
+
+  final String origin;
+  final String? videoApiUrl;
+}
+
 class C3ServerDialog extends StatefulWidget {
-  const C3ServerDialog({super.key, required this.initialValue});
+  const C3ServerDialog({
+    super.key,
+    required this.initialValue,
+    this.initialVideoApiUrl,
+  });
 
   final String initialValue;
+  final String? initialVideoApiUrl;
 
   @override
   State<C3ServerDialog> createState() => _C3ServerDialogState();
@@ -12,6 +24,7 @@ class C3ServerDialog extends StatefulWidget {
 
 class _C3ServerDialogState extends State<C3ServerDialog> {
   late final TextEditingController _controller;
+  late final TextEditingController _videoApiController;
 
   static const List<String> _presets = [
     'http://172.16.0.50:5001',
@@ -23,16 +36,29 @@ class _C3ServerDialogState extends State<C3ServerDialog> {
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialValue);
+    _videoApiController = TextEditingController(
+      text: widget.initialVideoApiUrl ?? '',
+    );
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    _videoApiController.dispose();
     super.dispose();
   }
 
-  void _close([String? value]) {
+  void _close([C3ServerSelection? value]) {
     Navigator.of(context).pop(value);
+  }
+
+  void _save() {
+    _close(
+      C3ServerSelection(
+        origin: _controller.text,
+        videoApiUrl: _videoApiController.text,
+      ),
+    );
   }
 
   String _labelFor(String preset) {
@@ -51,38 +77,55 @@ class _C3ServerDialogState extends State<C3ServerDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('C3 Server'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextField(
-            controller: _controller,
-            keyboardType: TextInputType.url,
-            decoration: const InputDecoration(
-              labelText: 'Domain / IP and port',
-              hintText: 'http://172.16.0.50:5001',
-              prefixIcon: Icon(Icons.dns_outlined),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _controller,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                labelText: 'Domain / IP and port',
+                hintText: 'http://172.16.0.50:5001',
+                prefixIcon: Icon(Icons.dns_outlined),
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final preset in _presets)
-                ActionChip(
-                  avatar: Icon(_iconFor(preset), size: 18),
-                  label: Text(_labelFor(preset)),
-                  onPressed: () => setState(() => _controller.text = preset),
-                ),
-            ],
-          ),
-        ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final preset in _presets)
+                  ActionChip(
+                    avatar: Icon(_iconFor(preset), size: 18),
+                    label: Text(_labelFor(preset)),
+                    onPressed: () => setState(() {
+                      _controller.text = preset;
+                      _videoApiController.clear();
+                    }),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            TextField(
+              controller: _videoApiController,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                labelText: 'Video API URL (optional)',
+                hintText: 'http://172.16.0.50:5001/api/livekit',
+                prefixIcon: Icon(Icons.video_call_outlined),
+                helperText:
+                    'Leave blank to use the selected C3 Server /api/livekit.',
+              ),
+            ),
+          ],
+        ),
       ),
       actions: [
         TextButton(onPressed: () => _close(), child: const Text('Cancel')),
         FilledButton(
-          onPressed: () => _close(_controller.text),
+          onPressed: _save,
           child: const Text('Save & Test'),
         ),
       ],

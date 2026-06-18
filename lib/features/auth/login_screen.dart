@@ -30,10 +30,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _openConnectionSettings() async {
-    final selected = await showDialog<String>(
+    final selected = await showDialog<C3ServerSelection>(
       context: context,
-      builder: (_) =>
-          C3ServerDialog(initialValue: ServerConnectionConfig.instance.origin),
+      builder: (_) => C3ServerDialog(
+        initialValue: ServerConnectionConfig.instance.origin,
+        initialVideoApiUrl: ServerConnectionConfig.instance.videoApiOverride,
+      ),
     );
     if (selected == null) return;
 
@@ -43,7 +45,10 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      await ServerConnectionConfig.instance.save(selected);
+      await ServerConnectionConfig.instance.save(
+        selected.origin,
+        videoApiUrl: selected.videoApiUrl,
+      );
       final origin = ServerConnectionConfig.instance.origin;
       final response = await http
           .get(Uri.parse('$origin/api/auth/responder-signup/options'))
