@@ -23,24 +23,7 @@ class ServerConnectionConfig extends ChangeNotifier {
       return _trimTrailingSlash(override.trim());
     }
 
-    final parsed = Uri.parse(_origin);
-    final scheme = parsed.scheme.isEmpty ? 'http' : parsed.scheme;
-    if (scheme == 'https') {
-      final uri = Uri(
-        scheme: scheme,
-        host: parsed.host,
-        port: parsed.hasPort ? parsed.port : null,
-        path: 'video-api',
-      );
-      return _trimTrailingSlash(uri.toString());
-    }
-
-    final uri = Uri(
-      scheme: scheme,
-      host: parsed.host,
-      port: 3000,
-    );
-    return _trimTrailingSlash(uri.toString());
+    return '$apiBaseUrl/livekit';
   }
 
   Future<void> load() async {
