@@ -1,7 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:konektizen/features/cases/case_model.dart';
-import 'package:konektizen/core/ai/llm_service.dart';
-import 'package:konektizen/features/cases/cases_provider.dart';
 import 'package:konektizen/core/api/api_service.dart';
 import 'package:flutter/material.dart';
 
@@ -245,6 +243,10 @@ class ReportDraftNotifier extends StateNotifier<ReportDraftState> {
 
   void clearDraft() {
     state = ReportDraftState();
+  }
+
+  void updateDraft(ReportDraftState newState) {
+    state = newState;
   }
 }
 

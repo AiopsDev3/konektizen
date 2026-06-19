@@ -15,6 +15,7 @@ class SignalingService {
 
   IO.Socket? socket;
   Function(Map<String, dynamic>)? onCallDeclined;
+  void Function(Map<String, dynamic>)? onCaseUpdated;
   String? _activeAcceptedCallId;
 
   // C3 Command Center URL. Read dynamically so Settings changes apply before
@@ -74,6 +75,13 @@ class SignalingService {
     socket!.off('c3_sos_ack');
     socket!.off('call_declined');
     socket!.off('sos_dismissed');
+    socket!.off('case_updated');
+
+    socket!.on('case_updated', (data) {
+      print('[Signaling] case_updated event received: $data');
+      final payload = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+      onCaseUpdated?.call(payload);
+    });
 
     void openAcceptedCall(dynamic data, {bool requireReporterMatch = false}) {
       final payload = data is Map

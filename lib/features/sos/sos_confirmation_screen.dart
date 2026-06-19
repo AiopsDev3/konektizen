@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:konektizen/core/services/location_service.dart';
 import 'package:konektizen/features/sos/sos_service.dart';
+import 'package:konektizen/features/sos/widgets/pulsing_sos_button.dart';
+import 'package:konektizen/features/sos/widgets/sos_info_grid.dart';
 import 'package:konektizen/features/sos_video_call/signaling_service.dart';
-import 'package:konektizen/core/api/api_service.dart'; // To get userId
+import 'package:konektizen/core/api/api_service.dart';
 
 class SOSConfirmationScreen extends StatefulWidget {
   const SOSConfirmationScreen({super.key});
@@ -16,15 +19,13 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
   bool _isProcessing = false;
   String? _statusMessage;
   String? _hotlineNumber;
-  final SignalingService _signaling =
-      SignalingService.instance; // Singleton ref
+  final SignalingService _signaling = SignalingService.instance;
 
   @override
   void initState() {
     super.initState();
     _fetchHotline();
     _signaling.onCallDeclined = _handleCallDeclined;
-    // OPTIMIZATION: Pre-connect to C3 Socket immediately so we are ready to receive calls instantly.
     _connectSocketEarly();
   }
 
@@ -38,8 +39,7 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
 
   void _handleCallDeclined(Map<String, dynamic> payload) {
     if (!mounted) return;
-    final message =
-        payload['message']?.toString() ??
+    final message = payload['message']?.toString() ??
         'C3 is busy right now. Please try again shortly.';
     setState(() {
       _isProcessing = false;
@@ -52,11 +52,10 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
       final user = await apiService.getCurrentUser();
       final userId = user?['_id'] ?? user?['id'];
       if (userId != null) {
-        print('[SOS UI] Pre-connecting Socket for User: $userId');
         _signaling.listenForIncomingCall(userId.toString());
       }
     } catch (e) {
-      print('[SOS UI] Pre-connect error: $e');
+      debugPrint('[SOS UI] Pre-connect error: $e');
     }
   }
 
@@ -66,14 +65,12 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
   }
 
   Future<void> _handleSOS() async {
-    // strict debounce
     if (_isProcessing) return;
     setState(() {
       _isProcessing = true;
       _statusMessage = null;
     });
 
-    // 1. Get Location (Required)
     final location = await locationService.getCurrentLocation();
     if (location == null) {
       if (mounted) {
@@ -89,18 +86,12 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
     }
 
     final hotline = _hotlineNumber ?? '911';
-
-    // 2. Send SOS IMMEDIATELY (Don't wait for anything else)
-    print('[SOS UI] ⚡ SENDING SOS IMMEDIATELY');
     try {
-      // Send SOS and wait for result
       final success = await sosService.sendSOS(
         latitude: location.latitude,
         longitude: location.longitude,
         hotlineNumber: hotline,
       );
-
-      print('[SOS UI] SOS API Result: $success');
 
       if (!success && mounted) {
         setState(() => _isProcessing = false);
@@ -112,15 +103,7 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
         );
         return;
       }
-
-      // SOS sent successfully - now wait for operator to accept
-      // The call_accepted event listener is already set up in _connectSocketEarly()
-      // When C3 accepts, the SignalingService will automatically open the call screen
-      print(
-        '[SOS UI] ✅ SOS sent successfully. Waiting for operator to accept...',
-      );
     } catch (e) {
-      print('[SOS UI] SOS API Error: $e');
       if (mounted) {
         setState(() => _isProcessing = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -133,156 +116,207 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.red,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFFEF4444),
+              Color(0xFF991B1B),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Stack(
             children: [
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
-                      blurRadius: 20,
-                      spreadRadius: 5,
+              // Top Close Button
+              Positioned(
+                left: 16,
+                top: 16,
+                child: GestureDetector(
+                  onTap: () => context.pop(),
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.black.withValues(alpha: 0.2),
                     ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.phone_in_talk,
-                  size: 60,
-                  color: Colors.red,
-                ),
-              ),
-              const SizedBox(height: 48),
-              const Text(
-                'EMERGENCY SOS',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
+                    child: const Icon(
+                      Icons.close_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(height: 16),
-              const Text(
-                'This will call the Command Center hotline and share your current location with responders.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white, fontSize: 18),
-              ),
-              const Spacer(),
-              if (_isProcessing)
-                Column(
+              // Main Content
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                child: Column(
                   children: [
-                    const CircularProgressIndicator(color: Colors.white),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'SOS Alert Sent!',
-                      style: TextStyle(
+                    const Spacer(flex: 3),
+                    PulsingSOSButton(onTap: _handleSOS),
+                    const Spacer(flex: 2),
+                    Text(
+                      'EMERGENCY SOS',
+                      style: GoogleFonts.inter(
                         color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Waiting for operator to accept...',
-                      style: TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                    if (_statusMessage != null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        _statusMessage!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 24),
-                    TextButton(
-                      onPressed: () {
-                        setState(() => _isProcessing = false);
-                        context.pop();
-                      },
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 32,
-                          vertical: 16,
-                        ),
-                        side: const BorderSide(color: Colors.white, width: 2),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text(
-                        'GO BACK',
-                        style: TextStyle(fontSize: 16),
+                    const SizedBox(height: 12),
+                    Text(
+                      'This will call the Command Center hotline and share your current location with responders.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(
+                        color: Colors.white.withValues(alpha: 0.8),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        height: 1.4,
                       ),
                     ),
-                  ],
-                )
-              else
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    ElevatedButton(
-                      onPressed: _handleSOS,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.red,
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text(
-                        'CALL NOW',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextButton(
-                      onPressed: () => context.pop(),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: const Text(
-                        'CANCEL',
-                        style: TextStyle(fontSize: 16),
-                      ),
-                    ),
-                    if (_statusMessage != null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        _statusMessage!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+                    const Spacer(flex: 3),
+                    const SOSInfoGrid(),
+                    const Spacer(flex: 3),
+                    _buildActionPanel(context),
+                    const SizedBox(height: 12),
                   ],
                 ),
-              const SizedBox(height: 20),
+              ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildActionPanel(BuildContext context) {
+    if (_isProcessing) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  _statusMessage ?? 'Calling Command Center...',
+                  style: GoogleFonts.inter(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: () {
+              setState(() => _isProcessing = false);
+              context.pop();
+            },
+            child: Text(
+              'CANCEL',
+              style: GoogleFonts.inter(
+                color: Colors.white.withValues(alpha: 0.8),
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                decoration: TextDecoration.underline,
+                decorationColor: Colors.white.withValues(alpha: 0.8),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ElevatedButton(
+          onPressed: _handleSOS,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.white,
+            foregroundColor: const Color(0xFFEF4444),
+            minimumSize: const Size(double.infinity, 56),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            elevation: 8,
+            shadowColor: Colors.black.withValues(alpha: 0.25),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.call_rounded, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'CALL NOW',
+                style: GoogleFonts.inter(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Center(
+          child: GestureDetector(
+            onTap: () => context.push('/hotlines'),
+            child: Text(
+              'VIEW ALL LOCAL EMERGENCY HOTLINES',
+              style: GoogleFonts.inter(
+                color: Colors.white,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.5,
+                decoration: TextDecoration.underline,
+                decorationColor: Colors.white,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Center(
+          child: GestureDetector(
+            onTap: () => context.pop(),
+            child: Text(
+              'CANCEL',
+              style: GoogleFonts.inter(
+                color: Colors.white.withValues(alpha: 0.8),
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                decoration: TextDecoration.underline,
+                decorationColor: Colors.white.withValues(alpha: 0.8),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

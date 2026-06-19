@@ -16,19 +16,18 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
-              HomeHeader(),
-              HomeWeatherForecast(),
-              HomeQuickActions(),
-              HomeUpdatesPreview(),
-              HomeActiveReports(),
-            ],
-          ),
+    return const Scaffold(
+      backgroundColor: Color(0xFFF8FAFC), // Modern Slate 50 background
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            HomeHeader(),
+            HomeWeatherForecast(),
+            HomeQuickActions(),
+            HomeUpdatesPreview(),
+            HomeActiveReports(),
+          ],
         ),
       ),
     );

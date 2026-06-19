@@ -21,8 +21,11 @@ import 'package:konektizen/features/auth/phone_login_screen.dart';
 import 'package:konektizen/features/auth/otp_verification_screen.dart';
 import 'package:konektizen/features/auth/phone_profile_completion_screen.dart';
 import 'package:konektizen/features/sos/sos_confirmation_screen.dart';
+import 'package:konektizen/features/sos/emergency_hotlines_screen.dart';
 import 'package:konektizen/features/profile/edit_profile_screen.dart';
 import 'package:konektizen/core/api/api_service.dart';
+
+
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -97,9 +100,12 @@ final router = GoRouter(
         ),
       ],
     ),
-    StatefulShellRoute.indexedStack(
+    StatefulShellRoute(
+      navigatorContainerBuilder: (context, navigationShell, children) {
+        return ShellScreen(navigationShell: navigationShell, children: children);
+      },
       builder: (context, state, navigationShell) {
-        return ShellScreen(navigationShell: navigationShell);
+        return navigationShell;
       },
       branches: [
         // Home Branch
@@ -217,6 +223,11 @@ final router = GoRouter(
       path: '/verify-id',
       parentNavigatorKey: rootNavigatorKey,
       builder: (context, state) => const ResidencyVerificationScreen(),
+    ),
+    GoRoute(
+      path: '/hotlines',
+      parentNavigatorKey: rootNavigatorKey,
+      builder: (context, state) => const EmergencyHotlinesScreen(),
     ),
   ],
 );

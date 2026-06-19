@@ -1,186 +1,214 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:konektizen/features/home/city_update_section.dart';
-import 'package:konektizen/features/home/city_update_sources.dart';
-import 'package:konektizen/features/weather/weather_advisory.dart';
-import 'package:konektizen/features/weather/weather_advisory_card.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:konektizen/features/home/widgets/city_advisory_models.dart';
+import 'package:konektizen/features/home/widgets/city_advisory_metrics.dart';
+import 'package:konektizen/features/home/widgets/city_advisory_filters.dart';
+import 'package:konektizen/features/home/widgets/city_advisory_list.dart';
+import 'package:konektizen/features/home/widgets/city_advisory_sources.dart';
 import 'package:konektizen/features/weather/weather_advisory_provider.dart';
-import 'package:konektizen/theme/app_theme.dart';
 
 class CityUpdatesScreen extends ConsumerWidget {
   const CityUpdatesScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final advisories = ref.watch(weatherAdvisoriesProvider);
-
+    final double statusBarHeight = MediaQuery.of(context).padding.top;
+    
     return Scaffold(
-      appBar: AppBar(title: const Text('City Advisory'), centerTitle: true),
+      backgroundColor: const Color(0xFFF8FAFC), // Slate 50 background
       body: RefreshIndicator(
-        onRefresh: () async => ref.refresh(weatherAdvisoriesProvider.future),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
-          children: [
-            const _Header(),
-            const SizedBox(height: 18),
-            const CityUpdateSection(
-              title: 'Official Pages',
-              subtitle: 'Verified city pages residents can open anytime.',
-              links: officialCityLinks,
-            ),
-            const SizedBox(height: 8),
-            const CityUpdateSection(
-              title: 'Events',
-              subtitle: 'City events and public activities from Laoag pages.',
-              links: cityEventLinks,
-            ),
-            const SizedBox(height: 8),
-            const CityUpdateSection(
-              title: 'Alerts & Notifications',
-              subtitle: 'Local and national warning sources for fast checking.',
-              links: alertNotificationLinks,
-            ),
-            const SizedBox(height: 8),
-            const CityUpdateSection(
-              title: 'News',
-              subtitle: 'Source links from CDRRMO Laoag, PAGASA, and PHIVOLCS.',
-              links: cityNewsLinks,
-            ),
-            const SizedBox(height: 8),
-            _WeatherAlertsSection(advisories: advisories),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Header extends StatelessWidget {
-  const _Header();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppTheme.primary,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Icons.campaign_outlined, color: Colors.white),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Laoag City events, alerts, and source-backed news in one place.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                height: 1.35,
+        color: const Color(0xFF064E3B),
+        onRefresh: () async {
+          try {
+            final result = await ref.read(weatherAdvisoryServiceProvider).syncAdvisories();
+            final message = result['message'] ?? 'Sync successful!';
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(message),
+                  backgroundColor: const Color(0xFF064E3B),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
+          } catch (e) {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Sync failed: ${e.toString()}'),
+                  backgroundColor: const Color(0xFFEF4444),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
+          }
+          ref.invalidate(weatherAdvisoriesProvider);
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header Stack with Bell Tower painting & Overlapping Metrics
+              SizedBox(
+                height: 230 + statusBarHeight,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    // Green Header Background with Sinking Bell Tower painting
+                    Positioned(
+                      top: 0, left: 0, right: 0,
+                      height: 180 + statusBarHeight,
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Color(0xFF064E3B), // Emerald 900
+                              Color(0xFF022C22), // Deep Emerald
+                            ],
+                          ),
+                        ),
+                        child: CustomPaint(
+                          painter: SkylinePainter(),
+                          child: SafeArea(
+                            bottom: false,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const SizedBox(height: 10),
+                                      Row(
+                                        children: [
+                                          if (Navigator.canPop(context))
+                                            Padding(
+                                              padding: const EdgeInsets.only(right: 12.0),
+                                              child: GestureDetector(
+                                                onTap: () => Navigator.maybePop(context),
+                                                child: const Icon(
+                                                  Icons.arrow_back_ios_new_rounded,
+                                                  color: Colors.white,
+                                                  size: 20,
+                                                ),
+                                              ),
+                                            ),
+                                          Text(
+                                            'City Advisory',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 26,
+                                              fontWeight: FontWeight.w900,
+                                              color: Colors.white,
+                                              letterSpacing: -0.5,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        'Stay informed. Stay safe.',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.white.withValues(alpha: 0.9),
+                                        ),
+                                      ),
+                                      Text(
+                                        'Verified updates from Laoag City.',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.white.withValues(alpha: 0.7),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  // Refresh Icon button instead of notification bell
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: IconButton(
+                                      icon: const Icon(
+                                        Icons.sync_rounded,
+                                        color: Colors.white,
+                                        size: 28,
+                                      ),
+                                      tooltip: 'Sync News',
+                                      onPressed: () async {
+                                        try {
+                                          final result = await ref.read(weatherAdvisoryServiceProvider).syncAdvisories();
+                                          final message = result['message'] ?? 'Sync successful!';
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text(message),
+                                                backgroundColor: const Color(0xFF064E3B),
+                                                behavior: SnackBarBehavior.floating,
+                                              ),
+                                            );
+                                          }
+                                        } catch (e) {
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text('Sync failed: ${e.toString()}'),
+                                                backgroundColor: const Color(0xFFEF4444),
+                                                behavior: SnackBarBehavior.floating,
+                                              ),
+                                            );
+                                          }
+                                        }
+                                        ref.invalidate(weatherAdvisoriesProvider);
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    
+                    // Floating Metrics Card (Overlaps the bottom of green header)
+                    Positioned(
+                      top: 135 + statusBarHeight,
+                      left: 16,
+                      right: 16,
+                      child: const CityAdvisoryMetrics(),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WeatherAlertsSection extends StatelessWidget {
-  const _WeatherAlertsSection({required this.advisories});
-
-  final AsyncValue<List<WeatherAdvisory>> advisories;
-
-  @override
-  Widget build(BuildContext context) {
-    return advisories.when(
-      loading: () => const Center(
-        child: Padding(
-          padding: EdgeInsets.all(20),
-          child: CircularProgressIndicator(),
-        ),
-      ),
-      error: (error, stackTrace) => const _WeatherError(),
-      data: (items) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Live Weather Advisories',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 12),
-          if (items.isEmpty)
-            const _WeatherEmpty()
-          else
-            ...items.map(
-              (item) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: WeatherAdvisoryCard(advisory: item),
+              
+              const SizedBox(height: 12),
+              
+              // Horizontal Filters (spans edge-to-edge but starts with horizontal padding)
+              const CityAdvisoryFilters(),
+              
+              const SizedBox(height: 20),
+              
+              // Main Body Content with horizontal padding
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    CityAdvisoryList(),
+                    SizedBox(height: 24),
+                    CityAdvisorySources(),
+                    SizedBox(height: 40),
+                  ],
+                ),
               ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WeatherError extends StatelessWidget {
-  const _WeatherError();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _MessageBox(
-      icon: Icons.cloud_off_outlined,
-      text: 'Weather updates are unavailable. Pull to refresh and try again.',
-    );
-  }
-}
-
-class _WeatherEmpty extends StatelessWidget {
-  const _WeatherEmpty();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _MessageBox(
-      icon: Icons.check_circle_outline,
-      text: 'No active weather advisories in the last 72 hours.',
-    );
-  }
-}
-
-class _MessageBox extends StatelessWidget {
-  const _MessageBox({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.grey.shade200),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: AppTheme.secondary),
-          const SizedBox(width: 10),
-          Expanded(child: Text(text, textAlign: TextAlign.left)),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }

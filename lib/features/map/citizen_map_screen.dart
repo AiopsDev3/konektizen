@@ -13,6 +13,7 @@ import 'package:konektizen/features/map/citizen_map_style.dart';
 import 'package:konektizen/theme/app_theme.dart';
 import 'package:konektizen/features/map/citizen_map_layer_manager.dart';
 import 'package:konektizen/features/map/citizen_map_search.dart';
+import 'package:konektizen/features/map/citizen_map_layer_settings_sheet.dart';
 
 class CitizenMapScreen extends StatefulWidget {
   const CitizenMapScreen({super.key});
@@ -41,6 +42,7 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
   bool _showAqi = false;
   bool _showLocalFacilities = false;
   bool _showLocalHazards = false;
+  bool _showBarangays = false;
   bool _showLegendsPanel = false;
   int _layerOpacityPercent = 100;
   List<int> _floodReturnPeriods = [5, 25];
@@ -101,6 +103,7 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
           showAqi: _showAqi,
           showLocalFacilities: _showLocalFacilities,
           showLocalHazards: _showLocalHazards,
+          showBarangays: _showBarangays,
           layerOpacity: _layerOpacityPercent / 100,
         );
       } while (_needsLayerUpdate);
@@ -284,6 +287,14 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
     );
   }
 
+  void _toggleBarangays() {
+    final next = !_showBarangays;
+    setState(() => _showBarangays = next);
+    _updateLayerVisibility(
+      loadingMessage: next ? 'Barangay boundaries are loading...' : null,
+    );
+  }
+
   void _toggleLegendsPanel() {
     setState(() => _showLegendsPanel = !_showLegendsPanel);
   }
@@ -317,6 +328,34 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
     _layerOpacityDebounce = Timer(const Duration(milliseconds: 140), () {
       _updateLayerVisibility();
     });
+  }
+
+  void _showLayerSettingsBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (context) {
+        return CitizenMapLayerSettingsSheet(
+          opacityPercent: _layerOpacityPercent,
+          floodReturnPeriods: _floodReturnPeriods,
+          stormSurgeAdvisories: _stormSurgeAdvisories,
+          showFlood: _showFlood,
+          showLandslide: _showLandslide,
+          showStormSurge: _showStormSurge,
+          showBarangays: _showBarangays,
+          onOpacityChanged: _setLayerOpacity,
+          onFloodReturnPeriodToggled: _toggleFloodReturnPeriod,
+          onStormSurgeAdvisoryToggled: _toggleStormSurgeAdvisory,
+          onToggleFlood: _toggleFlood,
+          onToggleLandslide: _toggleLandslide,
+          onToggleStormSurge: _toggleStormSurge,
+          onToggleBarangays: _toggleBarangays,
+        );
+      },
+    );
   }
 
   @override
@@ -410,6 +449,7 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
                 showRainRadar: _showRainRadar,
                 showFaults: _showFaults,
                 showAqi: _showAqi,
+                showBarangays: _showBarangays,
                 layerOpacityPercent: _layerOpacityPercent,
                 onToggleFloodReturnPeriod: _toggleFloodReturnPeriod,
                 onToggleStormSurgeAdvisory: _toggleStormSurgeAdvisory,
@@ -432,6 +472,7 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
                 showAqi: _showAqi,
                 showLocalFacilities: _showLocalFacilities,
                 showLocalHazards: _showLocalHazards,
+                showBarangays: _showBarangays,
                 onToggleFlood: _toggleFlood,
                 onToggleLandslide: _toggleLandslide,
                 onToggleStormSurge: _toggleStormSurge,
@@ -442,6 +483,8 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
                 onToggleAqi: _toggleAqi,
                 onToggleLocalFacilities: _toggleLocalFacilities,
                 onToggleLocalHazards: _toggleLocalHazards,
+                onToggleBarangays: _toggleBarangays,
+                onToggleSettings: _showLayerSettingsBottomSheet,
               ),
             ),
           Positioned(

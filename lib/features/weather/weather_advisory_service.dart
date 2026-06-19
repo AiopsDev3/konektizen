@@ -65,6 +65,26 @@ class WeatherAdvisoryService {
     }
   }
 
+  Future<Map<String, dynamic>> syncAdvisories() async {
+    final token = await apiService.getToken();
+    if (token == null || token.isEmpty) {
+      throw Exception('Not authenticated');
+    }
+
+    final uri = Uri.parse(
+      '${ApiService.baseUrl}/reporters/weather-advisories/sync',
+    );
+    final response = await _http
+        .post(uri, headers: _headers(token))
+        .timeout(EnvironmentConfig.requestTimeout);
+
+    if (response.statusCode != 200) {
+      throw Exception('Unable to sync weather advisories.');
+    }
+
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
   Map<String, String> _headers(String token) {
     return {
       'Content-Type': 'application/json',

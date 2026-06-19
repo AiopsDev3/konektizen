@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:konektizen/core/api/api_service.dart';
 import 'package:konektizen/core/utils/app_dialogs.dart';
 import 'package:konektizen/features/auth/user_provider.dart';
-import 'package:konektizen/features/verification/barangay_data.dart';
+import 'package:konektizen/features/profile/widgets/location_card.dart';
+import 'package:konektizen/features/profile/widgets/profile_info_card.dart';
+import 'package:konektizen/features/profile/widgets/security_card.dart';
 import 'package:konektizen/theme/app_theme.dart';
 
 class EditProfileScreen extends ConsumerStatefulWidget {
@@ -31,7 +34,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   @override
   void initState() {
     super.initState();
-    // Load current user data
     Future.microtask(() {
       final userState = ref.read(userProvider);
       if (!mounted) return;
@@ -65,7 +67,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
     try {
       final userState = ref.read(userProvider);
-      // Update profile information
       await apiService.updateProfile(
         fullName: _nameCtrl.text,
         email: _emailCtrl.text,
@@ -78,7 +79,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         reporterId: userState.id,
       );
 
-      // If changing password, update it
       if (_isChangingPassword && _newPasswordCtrl.text.isNotEmpty) {
         await apiService.changePassword(
           currentPassword: _currentPasswordCtrl.text,
@@ -86,7 +86,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         );
       }
 
-      // Reload user data
       await ref.read(userProvider.notifier).loadCurrentUser();
 
       if (!mounted) return;
@@ -116,243 +115,99 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final laoagBarangays = BarangayData.getBarangays('Laoag City');
-    final selectedBarangay = laoagBarangays.contains(_barangayCtrl.text)
-        ? _barangayCtrl.text
-        : null;
-
     return Scaffold(
-      appBar: AppBar(title: const Text('Edit Profile')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Profile Information Section
-              Text(
-                'Profile Information',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.primary,
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              TextFormField(
-                controller: _nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Full Name',
-                  prefixIcon: Icon(Icons.person_outline),
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter your name';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-
-              TextFormField(
-                controller: _emailCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  prefixIcon: Icon(Icons.email_outlined),
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.emailAddress,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter your email';
-                  }
-                  if (!value.contains('@')) {
-                    return 'Please enter a valid email';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-
-              TextFormField(
-                controller: _phoneCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Phone Number (Optional)',
-                  prefixIcon: Icon(Icons.phone_outlined),
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.phone,
-              ),
-
-              const SizedBox(height: 32),
-
-              Text(
-                'Alert Location',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.primary,
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              DropdownButtonFormField<String>(
-                value: selectedBarangay,
-                isExpanded: true,
-                hint: Text(
-                  _barangayCtrl.text.isNotEmpty
-                      ? _barangayCtrl.text
-                      : 'Select your barangay',
-                  overflow: TextOverflow.ellipsis,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Barangay',
-                  prefixIcon: Icon(Icons.location_city_outlined),
-                  border: OutlineInputBorder(),
-                ),
-                items: laoagBarangays
-                    .map(
-                      (barangay) => DropdownMenuItem(
-                        value: barangay,
-                        child: Text(barangay, overflow: TextOverflow.ellipsis),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  setState(() => _barangayCtrl.text = value ?? '');
-                },
-                validator: (value) {
-                  if ((value == null || value.isEmpty) &&
-                      _barangayCtrl.text.isEmpty) {
-                    return 'Please select your barangay';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-
-              TextFormField(
-                controller: _streetCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Street / House Address (Optional)',
-                  prefixIcon: Icon(Icons.home_outlined),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-
-              const SizedBox(height: 32),
-
-              // Change Password Section
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Change Password',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.primary,
-                      ),
-                    ),
-                  ),
-                  Switch(
-                    value: _isChangingPassword,
-                    onChanged: (value) {
-                      setState(() => _isChangingPassword = value);
-                      if (!value) {
-                        _currentPasswordCtrl.clear();
-                        _newPasswordCtrl.clear();
-                        _confirmPasswordCtrl.clear();
-                      }
-                    },
-                  ),
-                ],
-              ),
-
-              if (_isChangingPassword) ...[
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _currentPasswordCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Current Password',
-                    prefixIcon: Icon(Icons.lock_outline),
-                    border: OutlineInputBorder(),
-                  ),
-                  obscureText: true,
-                  validator: (value) {
-                    if (_isChangingPassword &&
-                        (value == null || value.isEmpty)) {
-                      return 'Please enter your current password';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                TextFormField(
-                  controller: _newPasswordCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'New Password',
-                    prefixIcon: Icon(Icons.lock_outline),
-                    border: OutlineInputBorder(),
-                  ),
-                  obscureText: true,
-                  validator: (value) {
-                    if (_isChangingPassword &&
-                        (value == null || value.isEmpty)) {
-                      return 'Please enter a new password';
-                    }
-                    if (_isChangingPassword && value!.length < 6) {
-                      return 'Password must be at least 6 characters';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                TextFormField(
-                  controller: _confirmPasswordCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Confirm New Password',
-                    prefixIcon: Icon(Icons.lock_outline),
-                    border: OutlineInputBorder(),
-                  ),
-                  obscureText: true,
-                  validator: (value) {
-                    if (_isChangingPassword && value != _newPasswordCtrl.text) {
-                      return 'Passwords do not match';
-                    }
-                    return null;
-                  },
-                ),
-              ],
-
-              const SizedBox(height: 32),
-
-              ElevatedButton(
-                onPressed: _isLoading ? null : _saveChanges,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: AppTheme.primary,
-                  foregroundColor: Colors.white,
-                ),
-                child: _isLoading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text(
-                        'Save Changes',
-                        style: TextStyle(fontSize: 16),
-                      ),
-              ),
-            ],
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        title: Text(
+          'Edit Profile',
+          style: GoogleFonts.inter(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: const Color(0xFF1E293B),
           ),
         ),
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF1E293B),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+          onPressed: () => context.pop(),
+        ),
+      ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          // Responsive layout helper: Constrain width on tablets and desktop
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 600),
+              child: SingleChildScrollView(
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ProfileInfoCard(
+                        nameController: _nameCtrl,
+                        emailController: _emailCtrl,
+                        phoneController: _phoneCtrl,
+                        isLoading: _isLoading,
+                      ),
+                      const SizedBox(height: 20),
+                      LocationCard(
+                        barangayController: _barangayCtrl,
+                        streetController: _streetCtrl,
+                        isLoading: _isLoading,
+                      ),
+                      const SizedBox(height: 20),
+                      SecurityCard(
+                        isChangingPassword: _isChangingPassword,
+                        onToggleChanged: (value) {
+                          setState(() => _isChangingPassword = value);
+                          if (!value) {
+                            _currentPasswordCtrl.clear();
+                            _newPasswordCtrl.clear();
+                            _confirmPasswordCtrl.clear();
+                          }
+                        },
+                        currentPasswordController: _currentPasswordCtrl,
+                        newPasswordController: _newPasswordCtrl,
+                        confirmPasswordController: _confirmPasswordCtrl,
+                        isLoading: _isLoading,
+                      ),
+                      const SizedBox(height: 32),
+                      ElevatedButton.icon(
+                        onPressed: _isLoading ? null : _saveChanges,
+                        icon: _isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.check_circle_outline_rounded, size: 20),
+                        label: Text(_isLoading ? 'Saving...' : 'Save Changes'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          backgroundColor: AppTheme.primary,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          elevation: 2,
+                          shadowColor: AppTheme.primary.withValues(alpha: 0.3),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

@@ -118,4 +118,105 @@ class AppTheme {
       ),
     );
   }
+
+  static ThemeData get highContrastTheme {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      colorScheme: const ColorScheme.light(
+        primary: Color(0xFF000000),
+        onPrimary: Colors.white,
+        secondary: Color(0xFFC62828),
+        onSecondary: Colors.white,
+        tertiary: Color(0xFF000000),
+        onTertiary: Colors.white,
+        background: Colors.white,
+        surface: Colors.white,
+        onSurface: Colors.black,
+        error: Color(0xFFC62828),
+        onError: Colors.white,
+      ),
+      scaffoldBackgroundColor: Colors.white,
+      textTheme: GoogleFonts.interTextTheme().copyWith(
+        displayLarge: GoogleFonts.inter(color: Colors.black, fontWeight: FontWeight.bold),
+        titleLarge: GoogleFonts.inter(color: Colors.black, fontWeight: FontWeight.bold),
+        bodyLarge: GoogleFonts.inter(color: Colors.black, fontWeight: FontWeight.bold),
+        bodyMedium: GoogleFonts.inter(color: Colors.black, fontWeight: FontWeight.w700),
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+        titleTextStyle: TextStyle(
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      cardTheme: CardThemeData(
+        color: Colors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Colors.black, width: 2.5),
+        ),
+        margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.black, width: 2.5),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.black, width: 1.5),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFC62828), width: 3),
+        ),
+        labelStyle: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+        contentPadding: const EdgeInsets.all(16),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Colors.black, width: 2),
+          ),
+          textStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: Colors.white,
+        indicatorColor: Colors.black12,
+        labelTextStyle: MaterialStateProperty.all(
+          const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black),
+        ),
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 4,
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: Colors.black,
+          textStyle: const TextStyle(fontWeight: FontWeight.bold, decoration: TextDecoration.underline),
+        ),
+      ),
+    );
+  }
 }
+

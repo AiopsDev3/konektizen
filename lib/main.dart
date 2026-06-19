@@ -8,6 +8,7 @@ import 'package:konektizen/core/config/server_connection_config.dart';
 import 'package:konektizen/core/router/router.dart';
 import 'package:konektizen/features/auth/user_provider.dart';
 import 'package:konektizen/features/weather/weather_notification_listener.dart';
+import 'package:konektizen/features/profile/accessibility_provider.dart';
 import 'package:konektizen/theme/app_theme.dart';
 
 void main() async {
@@ -76,10 +77,11 @@ class _KonektizenAppState extends ConsumerState<KonektizenApp>
 
   @override
   Widget build(BuildContext context) {
+    final accessibility = ref.watch(accessibilityProvider);
     return MaterialApp.router(
       title: 'KONEKTIZEN',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
+      theme: accessibility.highContrast ? AppTheme.highContrastTheme : AppTheme.lightTheme,
       routerConfig: router,
       builder: (context, child) {
         return WeatherNotificationListener(

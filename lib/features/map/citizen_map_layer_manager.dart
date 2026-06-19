@@ -43,6 +43,7 @@ class CitizenMapLayerManager {
     required bool showAqi,
     required bool showLocalFacilities,
     required bool showLocalHazards,
+    required bool showBarangays,
     required double layerOpacity,
   }) async {
     if (controller == null) return;
@@ -70,6 +71,11 @@ class CitizenMapLayerManager {
     await _syncRainRadarLayer(showRainRadar, overlayBelowLayerId);
     await _syncFaultLayer(showFaults, overlayBelowLayerId);
     await _syncAqiLayer(showAqi, overlayBelowLayerId);
+    await _syncBarangayBoundariesLayer(
+      showBarangays,
+      layerOpacity,
+      overlayBelowLayerId,
+    );
 
     await syncC3LocalLayers(
       controller,
@@ -456,7 +462,7 @@ class CitizenMapLayerManager {
         layerId: layerId,
         tiles: [tileUrl],
         opacity: 0.58,
-        maxzoom: 10,
+        maxzoom: 7,
         belowLayerId: belowLayerId,
       );
     } catch (e) {
@@ -576,6 +582,106 @@ class CitizenMapLayerManager {
       addedSources.add(sourceId);
     } catch (e) {
       debugPrint('AQI fetch failed: $e');
+    }
+  }
+
+  Future<void> _syncBarangayBoundariesLayer(
+    bool show,
+    double layerOpacity,
+    String? belowLayerId,
+  ) async {
+    final opacity = layerOpacity.clamp(0.0, 1.0);
+    const sourceId = 'laoag-barangay-boundaries-source';
+    const fillLayerId = 'laoag-barangay-boundaries-fill';
+    const outlineLayerId = 'laoag-barangay-boundaries-outline';
+    const labelLayerId = 'laoag-barangay-boundaries-label';
+
+    final layerIds = [fillLayerId, outlineLayerId, labelLayerId];
+    final handledExisting = await _syncExistingVisibility(
+      show: show,
+      sourceId: sourceId,
+      layerIds: layerIds,
+    );
+
+    if (handledExisting) {
+      if (show && addedSources.contains(sourceId)) {
+        await controller?.setLayerProperties(
+          fillLayerId,
+          FillLayerProperties(fillOpacity: ['*', 0.45, opacity]),
+        );
+        await controller?.setLayerProperties(
+          outlineLayerId,
+          LineLayerProperties(lineOpacity: ['*', 0.5, opacity]),
+        );
+        await controller?.setLayerProperties(
+          labelLayerId,
+          SymbolLayerProperties(textOpacity: opacity),
+        );
+      }
+      return;
+    }
+
+    if (!show) return;
+
+    try {
+      final geoJson = await _loadAssetGeoJson(
+        'assets/data/LaoagBarangayBoundaries.geojson',
+      );
+      await controller?.addGeoJsonSource(sourceId, geoJson);
+
+      await controller?.addFillLayer(
+        sourceId,
+        fillLayerId,
+        FillLayerProperties(
+          fillColor: [
+            'coalesce',
+            [Expressions.get, 'district_color'],
+            '#cbd5e1',
+          ],
+          fillOpacity: ['*', 0.45, opacity],
+        ),
+        belowLayerId: belowLayerId,
+        enableInteraction: false,
+      );
+
+      await controller?.addLineLayer(
+        sourceId,
+        outlineLayerId,
+        LineLayerProperties(
+          lineColor: '#1e3a8a',
+          lineOpacity: ['*', 0.5, opacity],
+          lineWidth: 1.2,
+        ),
+        belowLayerId: belowLayerId,
+        enableInteraction: false,
+      );
+
+      await controller?.addSymbolLayer(
+        sourceId,
+        labelLayerId,
+        SymbolLayerProperties(
+          textField: [Expressions.get, 'name'],
+          textSize: [
+            'interpolate',
+            ['linear'],
+            [Expressions.zoom],
+            11.5,
+            8.5,
+            14.5,
+            11,
+          ],
+          textColor: '#0f172a',
+          textHaloColor: '#ffffff',
+          textHaloWidth: 2.0,
+          textOpacity: opacity,
+        ),
+        belowLayerId: belowLayerId,
+        enableInteraction: false,
+      );
+
+      addedSources.add(sourceId);
+    } catch (e) {
+      debugPrint('Failed to load barangay boundaries layer: $e');
     }
   }
 
@@ -816,11 +922,86 @@ class CitizenMapLayerManager {
 
     final geoJsonString = await rootBundle.loadString(assetPath);
     final geoJson = jsonDecode(geoJsonString);
-    final normalized = geoJson is Map<String, dynamic>
+    var normalized = geoJson is Map<String, dynamic>
         ? geoJson
         : {'type': 'FeatureCollection', 'features': []};
+    if (assetPath.contains('LaoagBarangayBoundaries.geojson')) {
+      normalized = _preprocessBarangays(normalized);
+    }
     _assetGeoJsonCache[assetPath] = normalized;
     return normalized;
+  }
+
+  Map<String, dynamic> _preprocessBarangays(Map<String, dynamic> geoJson) {
+    final features = geoJson['features'];
+    if (features is List) {
+      for (final f in features) {
+        if (f is Map<String, dynamic> && f['properties'] is Map<String, dynamic>) {
+          final props = f['properties'] as Map<String, dynamic>;
+          final name = props['brgy_name'] ?? props['name'] ?? '';
+          final code = props['brgy_code'] ?? '';
+
+          final match = RegExp(
+            r'(?:Bgy\.?\s*No\.?\s*|Barangay\s*|Brgy\s*No\.\s*)?([0-9]+(?:-[A-Z])?)',
+            caseSensitive: false,
+          ).firstMatch(name);
+          var barangayCode = code;
+          if (match != null) {
+            barangayCode = match.group(1)?.toUpperCase() ?? '';
+          }
+
+          final numMatch = RegExp(r'^([0-9]+)').firstMatch(barangayCode);
+          var numVal = 0;
+          if (numMatch != null) {
+            numVal = int.tryParse(numMatch.group(1) ?? '') ?? 0;
+          }
+
+          String districtColor = '#cbd5e1';
+          String districtName = 'Unassigned';
+          if (numVal >= 1 && numVal <= 9) {
+            districtColor = '#F4A261';
+            districtName = 'District 1 (North)';
+          } else if (numVal >= 10 && numVal <= 19) {
+            districtColor = '#E9C46A';
+            districtName = 'District 2 (Northwest)';
+          } else if (numVal >= 20 && numVal <= 29) {
+            districtColor = '#FFD166';
+            districtName = 'District 3 (Northeast)';
+          } else if (numVal >= 30 && numVal <= 34) {
+            districtColor = '#8BCF7B';
+            districtName = 'District 4 (East)';
+          } else if (numVal >= 35 && numVal <= 43) {
+            districtColor = '#4FD1C5';
+            districtName = 'District 5 (South)';
+          } else if (numVal >= 44 && numVal <= 50) {
+            districtColor = '#60A5FA';
+            districtName = 'District 6 (Southeast)';
+          } else if (numVal == 51 && barangayCode == '51-A') {
+            districtColor = '#60A5FA';
+            districtName = 'District 6 (Southeast)';
+          } else if (numVal == 51 && barangayCode == '51-B') {
+            districtColor = '#818CF8';
+            districtName = 'District 7 (West)';
+          } else if (numVal >= 52 && numVal <= 55) {
+            districtColor = '#818CF8';
+            districtName = 'District 7 (West)';
+          } else if (numVal == 56 && barangayCode == '56-A') {
+            districtColor = '#818CF8';
+            districtName = 'District 7 (West)';
+          } else if (numVal == 56 && barangayCode == '56-B') {
+            districtColor = '#C084FC';
+            districtName = 'District 8 (Central)';
+          } else if (numVal >= 57 && numVal <= 62) {
+            districtColor = '#C084FC';
+            districtName = 'District 8 (Central)';
+          }
+
+          props['district_color'] = districtColor;
+          props['district_name'] = districtName;
+        }
+      }
+    }
+    return geoJson;
   }
 
   List<dynamic> _inFilter(String property, List<int> values) {

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:konektizen/core/localization/app_localizations.dart';
 import 'package:konektizen/features/report/report_provider.dart';
+import 'package:konektizen/features/report/widgets/report_category_picker.dart';
 import 'package:konektizen/theme/app_theme.dart';
 
 class ReportCategoryScreen extends ConsumerStatefulWidget {
@@ -18,35 +21,104 @@ class _ReportCategoryScreenState extends ConsumerState<ReportCategoryScreen> {
   @override
   void initState() {
     super.initState();
-    // Trigger analysis on load
     Future.microtask(() => ref.read(reportDraftProvider.notifier).analyzeDraft());
+  }
+
+  String _getCategoryDisplayName(String category, AppStrings strings) {
+    switch (category.toUpperCase()) {
+      case 'BASURA':
+      case 'SANITATION':
+        return 'Sanitation (${strings.text('home.category.garbage')})';
+      case 'KALSADA':
+      case 'ROADS & INFRA':
+        return 'Roads & Infra (${strings.text('home.category.road')})';
+      case 'PAGBAHA':
+      case 'FLOODING':
+        return 'Flooding (${strings.text('home.category.flood')})';
+      case 'ILAW_SA_KALYE':
+      case 'UTILITIES':
+        return 'Utilities (${strings.text('home.category.streetLight')})';
+      case 'TRAPIKO':
+      case 'TRAFFIC':
+        return 'Traffic (${strings.text('home.category.traffic')})';
+      case 'IBA_PA':
+      case 'PUBLIC CONCERN':
+        return 'Public Concern (${strings.text('home.category.report')})';
+      default:
+        return category;
+    }
+  }
+
+  IconData _getCategoryIcon(String category) {
+    switch (category.toUpperCase()) {
+      case 'BASURA':
+      case 'SANITATION':
+        return Icons.delete_outline_rounded;
+      case 'KALSADA':
+      case 'ROADS & INFRA':
+        return Icons.edit_road_rounded;
+      case 'PAGBAHA':
+      case 'FLOODING':
+        return Icons.water_drop_rounded;
+      case 'ILAW_SA_KALYE':
+      case 'UTILITIES':
+        return Icons.lightbulb_outline_rounded;
+      case 'TRAPIKO':
+      case 'TRAFFIC':
+        return Icons.traffic_rounded;
+      default:
+        return Icons.assignment_add;
+    }
+  }
+
+  void _showCategoryPicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const ReportCategoryPicker(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final draft = ref.watch(reportDraftProvider);
+    final strings = ref.watch(appStringsProvider);
 
-    // Show loading state
+    // 1. Loading State
     if (draft.isAnalyzing) {
       return Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
         appBar: AppBar(
-          title: const Text('Sinusuri...'),
+          title: Text(strings.text('report.analyzing'), style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+          elevation: 0,
+          backgroundColor: Colors.white,
+          foregroundColor: const Color(0xFF1E293B),
         ),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const CircularProgressIndicator(),
+              CircularProgressIndicator(
+                color: AppTheme.primary,
+                strokeWidth: 3,
+              ),
               const SizedBox(height: 24),
               Text(
-                'Sinusuri ng AI ang iyong ulat...',
-                style: Theme.of(context).textTheme.titleMedium,
+                strings.text('report.analyzingSubtitle'),
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF1E293B),
+                ),
               ),
               const SizedBox(height: 8),
               Text(
-                'Sandali lang po.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF424242),
+                strings.text('report.pleaseWait'),
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: const Color(0xFF64748B),
                 ),
               ),
             ],
@@ -55,39 +127,63 @@ class _ReportCategoryScreenState extends ConsumerState<ReportCategoryScreen> {
       );
     }
 
-    // Show error state
+    // 2. Error State
     if (draft.analysisError != null) {
       return Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
         appBar: AppBar(
-          title: const Text('May Error'),
+          title: Text(strings.text('report.error'), style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+          elevation: 0,
+          backgroundColor: Colors.white,
+          foregroundColor: const Color(0xFF1E293B),
         ),
         body: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(Icons.error_outline, size: 64, color: AppTheme.error),
+              const Icon(Icons.error_outline_rounded, size: 64, color: AppTheme.error),
               const SizedBox(height: 24),
               Text(
                 draft.analysisError!,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleMedium,
+                style: GoogleFonts.inter(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF334155),
+                ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
               ElevatedButton.icon(
                 onPressed: () {
                   ref.read(reportDraftProvider.notifier).analyzeDraft();
                 },
-                icon: const Icon(Icons.refresh),
-                label: const Text('Subukan Muli'),
+                icon: const Icon(Icons.refresh_rounded),
+                label: Text(strings.text('report.tryAgain')),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 48),
+                  backgroundColor: AppTheme.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
+                ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               OutlinedButton(
-                onPressed: () {
-                  context.pop();
-                },
-                child: const Text('Bumalik'),
+                onPressed: () => context.pop(),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 48),
+                  side: const BorderSide(color: Color(0xFFCBD5E1)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: Text(
+                  strings.text('report.back'),
+                  style: GoogleFonts.inter(
+                    color: const Color(0xFF475569),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
             ],
           ),
@@ -96,126 +192,207 @@ class _ReportCategoryScreenState extends ConsumerState<ReportCategoryScreen> {
     }
 
     final analysis = draft.aiAnalysis;
-
     if (analysis == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        backgroundColor: Color(0xFFF8FAFC),
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
+    final displayCategoryName = _getCategoryDisplayName(analysis.category, strings);
+    final displayCategoryIcon = _getCategoryIcon(analysis.category);
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('Categorization'),
+        title: Text(
+          strings.text('report.title'),
+          style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+        ),
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF1E293B),
       ),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const LinearProgressIndicator(value: 0.50, backgroundColor: AppTheme.tertiary),
+            // Linear progress indicator at 50%
+            Row(
+              children: [
+                Expanded(
+                  child: LinearProgressIndicator(
+                    value: 0.50, 
+                    color: AppTheme.primary,
+                    backgroundColor: AppTheme.primary.withValues(alpha: 0.12),
+                    minHeight: 5,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 24),
             Row(
               children: [
-                const Icon(Icons.auto_awesome, color: AppTheme.primary),
+                Icon(Icons.auto_awesome_rounded, color: AppTheme.primary, size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  'AI Analysis Complete',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+                  strings.text('report.aiComplete'),
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
                     color: AppTheme.primary,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Text(
-              'Batay sa iyong paglalarawan, ito ay mukhang:',
-              style: Theme.of(context).textTheme.bodyLarge,
+              strings.text('report.aiGuess'),
+              style: GoogleFonts.inter(
+                fontSize: 14.5,
+                fontWeight: FontWeight.w500,
+                color: const Color(0xFF475569),
+              ),
             ),
             const SizedBox(height: 16),
+            
+            // Category Card
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.primary, width: 2),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3), width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppTheme.primary.withValues(alpha: 0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  )
+                ],
               ),
               child: Row(
                 children: [
-                   Icon(analysis.icon, size: 32, color: AppTheme.primary),
+                   Container(
+                     padding: const EdgeInsets.all(12),
+                     decoration: BoxDecoration(
+                       color: AppTheme.primary.withValues(alpha: 0.08),
+                       shape: BoxShape.circle,
+                     ),
+                     child: Icon(displayCategoryIcon, size: 28, color: AppTheme.primary),
+                   ),
                    const SizedBox(width: 16),
                    Expanded(
                      child: Column(
                        crossAxisAlignment: CrossAxisAlignment.start,
                        children: [
                          Text(
-                           analysis.category,
-                           style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                             fontWeight: FontWeight.bold,
+                           displayCategoryName,
+                           style: GoogleFonts.inter(
+                             fontWeight: FontWeight.w800,
+                             fontSize: 16,
+                             color: const Color(0xFF1E293B),
                            ),
                          ),
-                         Text(
-                           'Urgency: ${analysis.urgencyLabel}',
-                           style: TextStyle(
-                            color: (analysis.urgencyLabel == 'High') ? AppTheme.error : AppTheme.warning,
-                            fontWeight: FontWeight.w600,
-                           ),
-                         ),
-                         if (draft.isCityDetected)
-                           Padding(
-                             padding: const EdgeInsets.only(top: 4.0),
-                             child: Row(
-                               children: [
-                                 const Icon(Icons.location_on, size: 14, color: AppTheme.primary),
-                                 Text(
-                                   ' Detected: ${draft.city}',
-                                   style: const TextStyle(fontSize: 12, color: AppTheme.primary, fontWeight: FontWeight.bold),
-                                 ),
-                               ],
+                         const SizedBox(height: 4),
+                         Row(
+                           children: [
+                             Text(
+                               '${strings.text('report.urgency')}: ',
+                               style: GoogleFonts.inter(
+                                 fontSize: 13,
+                                 fontWeight: FontWeight.w500,
+                                 color: const Color(0xFF64748B),
+                               ),
                              ),
+                             Text(
+                               analysis.urgencyLabel,
+                               style: GoogleFonts.inter(
+                                 fontSize: 13,
+                                 color: (analysis.urgencyLabel.toLowerCase() == 'high') ? AppTheme.error : AppTheme.warning,
+                                 fontWeight: FontWeight.w700,
+                               ),
+                             ),
+                           ],
+                         ),
+                         if (draft.isCityDetected) ...[
+                           const SizedBox(height: 4),
+                           Row(
+                             children: [
+                               Icon(Icons.location_on_rounded, size: 13, color: AppTheme.primary),
+                               const SizedBox(width: 3),
+                               Text(
+                                 '${strings.text('report.detectedCity')}: ${draft.city}',
+                                 style: GoogleFonts.inter(
+                                   fontSize: 12, 
+                                   color: AppTheme.primary, 
+                                   fontWeight: FontWeight.w700,
+                                 ),
+                               ),
+                             ],
                            ),
+                         ],
                        ],
                      ),
                    ),
-                   const Icon(Icons.check_circle, color: AppTheme.primary),
+                   Icon(Icons.check_circle_rounded, color: AppTheme.primary, size: 24),
                 ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 32),
             Text(
-              'Is this correct?',
+              strings.text('report.isCorrect'),
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleMedium,
+              style: GoogleFonts.inter(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF1E293B),
+              ),
             ),
-            const SizedBox(height: 16),
-            const SizedBox(height: 16),
+            const Spacer(),
+            const SizedBox(height: 24),
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () {
-                       _showCategoryPicker(context, ref);
-                    },
+                    onPressed: () => _showCategoryPicker(context),
                     style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Colors.grey),
-                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                       padding: const EdgeInsets.symmetric(vertical: 12),
+                      minimumSize: const Size(0, 48),
+                      side: const BorderSide(color: Color(0xFFCBD5E1)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: const Text('Change Category', style: TextStyle(color: Colors.grey)),
+                    child: Text(
+                      strings.text('report.changeCategory'),
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(
+                        color: const Color(0xFF475569),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: () {
-                      context.push('/report/evidence');
-                    },
+                    onPressed: () => context.push('/report/evidence'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.secondary,
+                      minimumSize: const Size(0, 48),
+                      backgroundColor: AppTheme.primary,
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
                     ),
-                    child: const Text('Confirm & Continue'),
+                    child: Text(
+                      strings.text('report.confirm'),
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -223,35 +400,6 @@ class _ReportCategoryScreenState extends ConsumerState<ReportCategoryScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  void _showCategoryPicker(BuildContext context, WidgetRef ref) {
-    final categories = ['Roads & Infra', 'Flooding', 'Sanitation', 'Public Concern', 'Traffic', 'Utilities'];
-    
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('Select Category', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 16),
-              ...categories.map((cat) => ListTile(
-                title: Text(cat),
-                onTap: () {
-                  ref.read(reportDraftProvider.notifier).updateCategory(cat);
-                  context.pop();
-                },
-              )),
-            ],
-          ),
-        );
-      },
     );
   }
 }

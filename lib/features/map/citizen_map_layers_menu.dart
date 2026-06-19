@@ -1,9 +1,5 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:konektizen/features/map/citizen_map_glass.dart';
-import 'package:konektizen/theme/app_theme.dart';
 
 class CitizenMapLayersMenu extends StatelessWidget {
   const CitizenMapLayersMenu({
@@ -19,6 +15,7 @@ class CitizenMapLayersMenu extends StatelessWidget {
     required this.showAqi,
     required this.showLocalFacilities,
     required this.showLocalHazards,
+    required this.showBarangays,
     required this.onToggleFlood,
     required this.onToggleLandslide,
     required this.onToggleStormSurge,
@@ -29,172 +26,142 @@ class CitizenMapLayersMenu extends StatelessWidget {
     required this.onToggleAqi,
     required this.onToggleLocalFacilities,
     required this.onToggleLocalHazards,
+    required this.onToggleBarangays,
+    required this.onToggleSettings,
   });
 
-  final VoidCallback onClose;
-  final bool showFlood;
-  final bool showLandslide;
-  final bool showStormSurge;
-  final bool showTyphoon;
-  final bool showQuakes;
-  final bool showRainRadar;
-  final bool showFaults;
-  final bool showAqi;
-  final bool showLocalFacilities;
-  final bool showLocalHazards;
-  final VoidCallback onToggleFlood;
-  final VoidCallback onToggleLandslide;
-  final VoidCallback onToggleStormSurge;
-  final VoidCallback onToggleTyphoon;
-  final VoidCallback onToggleQuakes;
-  final VoidCallback onToggleRainRadar;
-  final VoidCallback onToggleFaults;
-  final VoidCallback onToggleAqi;
-  final VoidCallback onToggleLocalFacilities;
-  final VoidCallback onToggleLocalHazards;
+  final VoidCallback onClose,
+      onToggleFlood,
+      onToggleLandslide,
+      onToggleStormSurge,
+      onToggleTyphoon,
+      onToggleQuakes,
+      onToggleRainRadar,
+      onToggleFaults,
+      onToggleAqi,
+      onToggleLocalFacilities,
+      onToggleLocalHazards,
+      onToggleBarangays,
+      onToggleSettings;
+  final bool showFlood,
+      showLandslide,
+      showStormSurge,
+      showTyphoon,
+      showQuakes,
+      showRainRadar,
+      showFaults,
+      showAqi,
+      showLocalFacilities,
+      showLocalHazards,
+      showBarangays;
 
   @override
   Widget build(BuildContext context) {
     final options = [
-      _LayerOptionData(
-        Icons.local_hospital_outlined,
-        'Facilities',
-        showLocalFacilities,
-        onToggleLocalFacilities,
-      ),
-      _LayerOptionData(
-        Icons.warning_amber_outlined,
-        'Hazard Areas',
-        showLocalHazards,
-        onToggleLocalHazards,
-      ),
-      _LayerOptionData(
-        Icons.cloudy_snowing,
-        'Heavy Rainfall',
-        showRainRadar,
-        onToggleRainRadar,
-      ),
-      _LayerOptionData(
-        Icons.water_drop_outlined,
-        'Flood Susceptibility',
-        showFlood,
-        onToggleFlood,
-      ),
-      _LayerOptionData(
-        Icons.landslide_outlined,
-        'Landslide Hazard',
-        showLandslide,
-        onToggleLandslide,
-      ),
-      _LayerOptionData(
-        Icons.waves,
-        'Storm Surge',
-        showStormSurge,
-        onToggleStormSurge,
-      ),
-      _LayerOptionData(
-        Icons.cyclone_outlined,
-        'Typhoon',
-        showTyphoon,
-        onToggleTyphoon,
-      ),
-      _LayerOptionData(
-        Icons.timeline,
-        'Active Faults',
-        showFaults,
-        onToggleFaults,
-      ),
-      _LayerOptionData(
-        Icons.public_outlined,
-        'Earthquakes',
-        showQuakes,
-        onToggleQuakes,
-      ),
-      _LayerOptionData(Icons.air, 'Air Quality', showAqi, onToggleAqi),
+      _Opt(Icons.business_outlined, 'Facilities', showLocalFacilities, onToggleLocalFacilities),
+      _Opt(Icons.warning_amber_rounded, 'Hazard Areas', showLocalHazards, onToggleLocalHazards),
+      _Opt(Icons.map_outlined, 'Barangay Boundaries', showBarangays, onToggleBarangays),
+      _Opt(Icons.cloudy_snowing, 'Heavy Rainfall', showRainRadar, onToggleRainRadar),
+      _Opt(Icons.water_drop_outlined, 'Flood Susceptibility', showFlood, onToggleFlood),
+      _Opt(Icons.landslide_outlined, 'Landslide Hazard', showLandslide, onToggleLandslide),
+      _Opt(Icons.waves, 'Storm Surge', showStormSurge, onToggleStormSurge),
+      _Opt(Icons.cyclone_outlined, 'Typhoon', showTyphoon, onToggleTyphoon),
+      _Opt(Icons.show_chart, 'Active Faults', showFaults, onToggleFaults),
+      _Opt(Icons.sensors_rounded, 'Earthquakes', showQuakes, onToggleQuakes),
+      _Opt(Icons.air, 'Air Quality', showAqi, onToggleAqi),
     ];
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-        child: Container(
-          width: 220,
-          constraints: const BoxConstraints(maxHeight: 430),
-          decoration: mapGlassDecoration(16),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Map Layers',
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: onClose,
-                      child: const Icon(
-                        Icons.close,
-                        size: 18,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  itemBuilder: (_, index) => _LayerOption(data: options[index]),
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 14),
-                  itemCount: options.length,
-                ),
-              ),
-            ],
-          ),
-        ),
+    return Container(
+      width: 250,
+      constraints: const BoxConstraints(maxHeight: 560),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 16, offset: const Offset(0, 8))],
       ),
-    );
-  }
-}
-
-class _LayerOptionData {
-  const _LayerOptionData(this.icon, this.label, this.active, this.onTap);
-
-  final IconData icon;
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
-}
-
-class _LayerOption extends StatelessWidget {
-  const _LayerOption({required this.data});
-
-  final _LayerOptionData data;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = data.active ? AppTheme.primary : Colors.black54;
-    return GestureDetector(
-      onTap: data.onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(data.icon, size: 20, color: color),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              data.label,
-              style: GoogleFonts.inter(
-                fontSize: 14,
-                fontWeight: data.active ? FontWeight.w600 : FontWeight.w500,
-                color: data.active ? AppTheme.primary : Colors.black87,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 16, 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Map Layers', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w800, color: const Color(0xFF1E293B))),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 18, color: Color(0xFF64748B)),
+                  onPressed: onClose,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
+          ),
+          Flexible(
+            child: ListView.builder(
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              itemCount: options.length,
+              itemBuilder: (context, index) {
+                final opt = options[index];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: InkWell(
+                    onTap: opt.onTap,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: opt.active ? const Color(0xFFF0FDF4) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(opt.icon, size: 18, color: opt.active ? const Color(0xFF15803D) : const Color(0xFF64748B)),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              opt.label,
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: opt.active ? FontWeight.w700 : FontWeight.w500,
+                                color: opt.active ? const Color(0xFF15803D) : const Color(0xFF334155),
+                              ),
+                            ),
+                          ),
+                          Container(
+                            width: 18,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              color: opt.active ? const Color(0xFF15803D) : Colors.transparent,
+                              border: opt.active ? null : Border.all(color: const Color(0xFFCBD5E1), width: 1.5),
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                            child: opt.active ? const Icon(Icons.check, size: 13, color: Colors.white) : null,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const Divider(height: 1, thickness: 1, color: Color(0xFFF1F5F9)),
+          InkWell(
+            onTap: onToggleSettings,
+            borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(24), bottomRight: Radius.circular(24)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: Row(
+                children: [
+                  const Icon(Icons.settings_outlined, size: 18, color: Color(0xFF64748B)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text('Layer Settings', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B))),
+                  ),
+                  const Icon(Icons.chevron_right_rounded, size: 18, color: Color(0xFF94A3B8)),
+                ],
               ),
             ),
           ),
@@ -202,4 +169,12 @@ class _LayerOption extends StatelessWidget {
       ),
     );
   }
+}
+
+class _Opt {
+  const _Opt(this.icon, this.label, this.active, this.onTap);
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
 }

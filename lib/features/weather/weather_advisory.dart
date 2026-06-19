@@ -10,6 +10,7 @@ class WeatherAdvisory {
     this.preparedness,
     this.locationText,
     this.sourceName,
+    this.sourceUrl,
     this.sourceItemId,
     this.metrics = const {},
   });
@@ -23,6 +24,7 @@ class WeatherAdvisory {
   final String urgencyLevel;
   final String? locationText;
   final String? sourceName;
+  final String? sourceUrl;
   final String? sourceItemId;
   final Map<String, dynamic> metrics;
   final DateTime issuedAt;
@@ -38,6 +40,7 @@ class WeatherAdvisory {
       urgencyLevel: _asString(json['urgencyLevel'], fallback: 'monitor'),
       locationText: _optionalString(json['locationText']),
       sourceName: _optionalString(json['sourceName']),
+      sourceUrl: _optionalString(json['sourceUrl']),
       sourceItemId: _optionalString(json['sourceItemId']),
       metrics: _asMap(json['metrics']),
       issuedAt:
