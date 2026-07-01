@@ -9,13 +9,13 @@ class SOSService {
     return '911'; 
   }
 
-  Future<bool> sendSOS({
+  Future<Map<String, dynamic>?> sendSOS({
     required double latitude, 
     required double longitude,
     required String hotlineNumber,
   }) async {
     final token = await apiService.getToken();
-    if (token == null) return false;
+    if (token == null) return null;
 
     try {
       // 1. Try to get current user details (may fail if token expired)
@@ -56,10 +56,14 @@ class SOSService {
       ).timeout(const Duration(seconds: 10));
 
       print('SOS Response: ${response.statusCode} - ${response.body}');
-      return response.statusCode == 200 || response.statusCode == 201;
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final decoded = jsonDecode(response.body);
+        return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+      }
+      return null;
     } catch (e) {
       print('[SOS Service Error] Failed to send SOS: $e');
-      return false;
+      return null;
     }
   }
 

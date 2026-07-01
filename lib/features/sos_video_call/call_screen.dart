@@ -8,15 +8,15 @@ class CallScreen extends StatefulWidget {
   final String? hotlineNumber;
 
   const CallScreen({
-    Key? key,
+    super.key,
     required this.callId,
     required this.token,
     this.role = 'citizen',
     this.hotlineNumber,
-  }) : super(key: key);
+  });
 
   @override
-  _CallScreenState createState() => _CallScreenState();
+  State<CallScreen> createState() => _CallScreenState();
 }
 
 class _CallScreenState extends State<CallScreen> {
@@ -24,8 +24,8 @@ class _CallScreenState extends State<CallScreen> {
   Widget build(BuildContext context) {
     return CommandCenterCallScreen(
       callId: widget.callId,
-      operatorName: widget.hotlineNumber ?? 'Command Center',
-      startWithCamera: false,
+      operatorName: widget.hotlineNumber ?? 'AIGOR',
+      startWithCamera: true,
     );
   }
 }

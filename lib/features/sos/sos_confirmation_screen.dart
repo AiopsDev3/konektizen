@@ -5,6 +5,7 @@ import 'package:konektizen/core/services/location_service.dart';
 import 'package:konektizen/features/sos/sos_service.dart';
 import 'package:konektizen/features/sos/widgets/pulsing_sos_button.dart';
 import 'package:konektizen/features/sos/widgets/sos_info_grid.dart';
+import 'package:konektizen/features/sos_video_call/command_center_call_screen.dart';
 import 'package:konektizen/features/sos_video_call/signaling_service.dart';
 import 'package:konektizen/core/api/api_service.dart';
 
@@ -39,7 +40,8 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
 
   void _handleCallDeclined(Map<String, dynamic> payload) {
     if (!mounted) return;
-    final message = payload['message']?.toString() ??
+    final message =
+        payload['message']?.toString() ??
         'C3 is busy right now. Please try again shortly.';
     setState(() {
       _isProcessing = false;
@@ -87,22 +89,59 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
 
     final hotline = _hotlineNumber ?? '911';
     try {
-      final success = await sosService.sendSOS(
+      final callData = await sosService.startVideoCall(
         latitude: location.latitude,
         longitude: location.longitude,
         hotlineNumber: hotline,
       );
 
-      if (!success && mounted) {
+      if (callData == null) {
+        if (mounted) {
+          setState(() => _isProcessing = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to send SOS. Check connection.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (!mounted) return;
+      final callId =
+          callData['callId']?.toString() ??
+          callData['call_id']?.toString() ??
+          (callData['sosId'] != null ? 'sos_${callData['sosId']}' : null);
+      if (callId == null || callId.isEmpty) {
         setState(() => _isProcessing = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Failed to send SOS. Check connection.'),
+            content: Text('SOS sent, but call room was not created.'),
             backgroundColor: Colors.red,
           ),
         );
         return;
       }
+      final roomName =
+          callData['room_name']?.toString() ??
+          callData['roomName']?.toString() ??
+          (callId.startsWith('call_') || callId.startsWith('sos_')
+              ? callId
+              : 'call_$callId');
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => CommandCenterCallScreen(
+            callId: callId,
+            roomName: roomName,
+            operatorName: 'AIGOR',
+            startWithCamera: true,
+            aiCallerSessionId:
+                callData['ai_caller_session_id']?.toString() ??
+                callData['aiCallerSessionId']?.toString(),
+          ),
+        ),
+      );
     } catch (e) {
       if (mounted) {
         setState(() => _isProcessing = false);
@@ -123,10 +162,7 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFEF4444),
-              Color(0xFF991B1B),
-            ],
+            colors: [Color(0xFFEF4444), Color(0xFF991B1B)],
           ),
         ),
         child: SafeArea(
@@ -155,7 +191,10 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
               ),
               // Main Content
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24.0,
+                  vertical: 16.0,
+                ),
                 child: Column(
                   children: [
                     const Spacer(flex: 3),
@@ -220,7 +259,7 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
                 ),
                 const SizedBox(width: 12),
                 Text(
-                  _statusMessage ?? 'Calling Command Center...',
+                  _statusMessage ?? 'Calling AIGOR...',
                   style: GoogleFonts.inter(
                     color: Colors.white,
                     fontSize: 14,

@@ -75,6 +75,9 @@ dependencies:
   package_info_plus: ^9.0.1
   wakelock_plus: ^1.5.2
   speech_to_text: ^7.4.0
+  zego_express_engine: ^3.24.1
+  flutter_tts: ^4.2.5
+  audioplayers: ^6.7.1
 
 dev_dependencies:
   flutter_test:

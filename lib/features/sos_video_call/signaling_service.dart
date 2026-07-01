@@ -4,7 +4,7 @@ import 'package:konektizen/core/config/environment.dart';
 import 'package:konektizen/core/router/router.dart';
 import 'package:konektizen/features/sos_video_call/command_center_call_screen.dart';
 
-class SignalingService {
+class SignalingService with WidgetsBindingObserver {
   static const String _defaultC3BusyMessage =
       'C3 is busy right now. Please try again shortly.';
 
@@ -15,8 +15,12 @@ class SignalingService {
 
   IO.Socket? socket;
   Function(Map<String, dynamic>)? onCallDeclined;
+  void Function(Map<String, dynamic>)? onCallEnded;
   void Function(Map<String, dynamic>)? onCaseUpdated;
   String? _activeAcceptedCallId;
+  Map<String, dynamic>? _activeAcceptedCallPayload;
+  bool _callScreenVisible = false;
+  bool _lifecycleObserverAttached = false;
 
   // C3 Command Center URL. Read dynamically so Settings changes apply before
   // the next socket connection without rebuilding the app.
@@ -55,6 +59,27 @@ class SignalingService {
     );
   }
 
+  void _attachLifecycleObserver() {
+    if (_lifecycleObserverAttached) return;
+    WidgetsBinding.instance.addObserver(this);
+    _lifecycleObserverAttached = true;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      Future.delayed(const Duration(milliseconds: 350), () {
+        restoreActiveCallScreenIfNeeded();
+      });
+    }
+  }
+
+  bool _isPayloadForCurrentReporter(Map<String, dynamic> payload) {
+    final reporterId =
+        payload['reporter_id']?.toString() ?? payload['reporterId']?.toString();
+    return reporterId == null || _userId == null || reporterId == _userId;
+  }
+
   // Global listener for incoming calls from Command Center
   void listenForIncomingCall(String userId) {
     print(
@@ -62,6 +87,7 @@ class SignalingService {
     );
     print('[Signaling] User ID: $userId');
     _userId = userId;
+    _attachLifecycleObserver();
 
     // Connect (or reconnect if ID changed)
     connectToSocket();
@@ -75,11 +101,15 @@ class SignalingService {
     socket!.off('c3_sos_ack');
     socket!.off('call_declined');
     socket!.off('sos_dismissed');
+    socket!.off('end-call');
+    socket!.off('call_ended');
     socket!.off('case_updated');
 
     socket!.on('case_updated', (data) {
       print('[Signaling] case_updated event received: $data');
-      final payload = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+      final payload = data is Map
+          ? Map<String, dynamic>.from(data)
+          : <String, dynamic>{};
       onCaseUpdated?.call(payload);
     });
 
@@ -101,36 +131,7 @@ class SignalingService {
       print('[Signaling] 🔔 ========== CALL ACCEPTED RECEIVED ==========');
       print('[Signaling] Call Data: $payload');
 
-      // Extract callId and operatorName from C3 payload
-      final callId =
-          payload['callId']?.toString() ??
-          payload['call_id']?.toString() ??
-          payload['room']?.toString() ??
-          "incoming";
-      final room = payload['room']?.toString() ?? callId;
-      final operatorName =
-          payload['operatorName']?.toString() ?? "Command Center SOS";
-
-      if (_activeAcceptedCallId == room) {
-        print('[Signaling] Call screen already open for room: $room');
-        return;
-      }
-      _activeAcceptedCallId = room;
-      joinCallRoom(room, role: 'reporter');
-
-      print('[Signaling] Parsed callId: $callId');
-      print('[Signaling] Parsed room: $room');
-
-      if (rootNavigatorKey.currentState != null) {
-        rootNavigatorKey.currentState!.push(
-          MaterialPageRoute(
-            builder: (_) => CommandCenterCallScreen(
-              callId: room,
-              operatorName: operatorName,
-            ),
-          ),
-        );
-      }
+      _openCallScreenFromPayload(payload);
     }
 
     // C3 Spec: Listen for call_accepted (from accept_sos flow)
@@ -138,13 +139,34 @@ class SignalingService {
       openAcceptedCall(data);
     });
 
+    void handleEnded(dynamic data) {
+      final payload = data is Map
+          ? Map<String, dynamic>.from(data)
+          : <String, dynamic>{};
+      if (!_isPayloadForCurrentReporter(payload)) return;
+      final message = _extractDeclineMessage(payload);
+      final enriched = <String, dynamic>{...payload, 'message': message};
+      print('[Signaling] SOS call ended: $enriched');
+      onCallEnded?.call(enriched);
+      _showDismissMessage(message);
+    }
+
     // Fallback: some devices receive the global accepted ACK before/more reliably
     // than the targeted reporter-room call_accepted event.
     socket!.on('c3_sos_ack', (data) {
       final payload = data is Map
           ? Map<String, dynamic>.from(data)
           : <String, dynamic>{};
-      if (payload['action']?.toString() != 'accepted') return;
+      final action = payload['action']?.toString();
+      if (action != 'accepted') {
+        if (action == 'declined' ||
+            action == 'dismissed' ||
+            action == 'ended' ||
+            action == 'resolved') {
+          handleEnded(payload);
+        }
+        return;
+      }
       openAcceptedCall(payload, requireReporterMatch: true);
     });
 
@@ -152,15 +174,19 @@ class SignalingService {
       final payload = data is Map
           ? Map<String, dynamic>.from(data)
           : <String, dynamic>{};
+      if (!_isPayloadForCurrentReporter(payload)) return;
       final message = _extractDeclineMessage(payload);
       final enriched = <String, dynamic>{...payload, 'message': message};
       print('[Signaling] SOS dismissed by C3: $enriched');
       onCallDeclined?.call(enriched);
+      onCallEnded?.call(enriched);
       _showDismissMessage(message);
     }
 
     socket!.on('call_declined', handleDeclined);
     socket!.on('sos_dismissed', handleDeclined);
+    socket!.on('end-call', handleEnded);
+    socket!.on('call_ended', handleEnded);
   }
 
   void connectToSocket() {
@@ -217,14 +243,18 @@ class SignalingService {
   }
 
   void endCall(String room) {
-    socket?.emit('call_ended', {
+    final payload = {
       'room': room,
       'call_id': room,
       'callId': room,
       'ended_by': 'reporter',
-    });
+    };
+    socket?.emit('end-call', payload);
+    socket?.emit('call_ended', payload);
     if (_activeAcceptedCallId == room) {
       _activeAcceptedCallId = null;
+      _activeAcceptedCallPayload = null;
+      _callScreenVisible = false;
     }
   }
 
@@ -241,9 +271,117 @@ class SignalingService {
     });
   }
 
+  void markCallActive(String room) {
+    _activeAcceptedCallId = room;
+  }
+
+  void rememberActiveCall({
+    required String room,
+    required String callId,
+    String? operatorName,
+    String? aiCallerSessionId,
+  }) {
+    _attachLifecycleObserver();
+    _activeAcceptedCallId = room;
+    _activeAcceptedCallPayload = {
+      'room': room,
+      'room_name': room,
+      'roomName': room,
+      'call_id': callId,
+      'callId': callId,
+      if (operatorName != null) 'operatorName': operatorName,
+      if (aiCallerSessionId != null) 'ai_caller_session_id': aiCallerSessionId,
+      if (aiCallerSessionId != null) 'aiCallerSessionId': aiCallerSessionId,
+    };
+  }
+
+  void markCallScreenVisible(String room, bool visible) {
+    if (_activeAcceptedCallId == room) {
+      _callScreenVisible = visible;
+    }
+  }
+
   void markCallEnded(String room) {
     if (_activeAcceptedCallId == room) {
       _activeAcceptedCallId = null;
+      _activeAcceptedCallPayload = null;
+      _callScreenVisible = false;
+    }
+  }
+
+  void restoreActiveCallScreenIfNeeded() {
+    final payload = _activeAcceptedCallPayload;
+    if (payload == null ||
+        _activeAcceptedCallId == null ||
+        _callScreenVisible) {
+      return;
+    }
+    _openCallScreenFromPayload(payload, force: true);
+  }
+
+  void _openCallScreenFromPayload(
+    Map<String, dynamic> payload, {
+    bool force = false,
+  }) {
+    final callId =
+        payload['callId']?.toString() ??
+        payload['call_id']?.toString() ??
+        payload['room']?.toString() ??
+        'incoming';
+    final room =
+        payload['room_name']?.toString() ??
+        payload['roomName']?.toString() ??
+        payload['room']?.toString() ??
+        (callId.startsWith('call_') || callId.startsWith('sos_')
+            ? callId
+            : 'call_$callId');
+    final operatorName =
+        payload['operatorName']?.toString() ??
+        payload['operator_name']?.toString() ??
+        payload['assignedOperatorName']?.toString() ??
+        payload['assigned_operator_name']?.toString() ??
+        'Command Center SOS';
+    final aiCallerSessionId =
+        payload['ai_caller_session_id']?.toString() ??
+        payload['aiCallerSessionId']?.toString() ??
+        payload['session_id']?.toString() ??
+        payload['sessionId']?.toString();
+
+    if (!force && _activeAcceptedCallId == room && _callScreenVisible) {
+      print('[Signaling] Call screen already open for room: $room');
+      return;
+    }
+
+    _activeAcceptedCallId = room;
+    _activeAcceptedCallPayload = {
+      ...payload,
+      'room': room,
+      'room_name': room,
+      'roomName': room,
+      'call_id': callId,
+      'callId': callId,
+      'operatorName': operatorName,
+      if (aiCallerSessionId != null) 'ai_caller_session_id': aiCallerSessionId,
+      if (aiCallerSessionId != null) 'aiCallerSessionId': aiCallerSessionId,
+    };
+    joinCallRoom(room, role: 'reporter');
+
+    print('[Signaling] Parsed callId: $callId');
+    print('[Signaling] Parsed room: $room');
+
+    final navigator = rootNavigatorKey.currentState;
+    if (navigator != null) {
+      _callScreenVisible = true;
+      navigator.push(
+        MaterialPageRoute(
+          builder: (_) => CommandCenterCallScreen(
+            callId: callId,
+            roomName: room,
+            operatorName: operatorName,
+            aiCallerSessionId: aiCallerSessionId,
+          ),
+        ),
+      );
     }
   }
 
@@ -273,8 +411,14 @@ class SignalingService {
 
   void dispose() {
     print('[Signaling] Disposing socket connection');
+    if (_lifecycleObserverAttached) {
+      WidgetsBinding.instance.removeObserver(this);
+      _lifecycleObserverAttached = false;
+    }
     if (socket != null) {
       _activeAcceptedCallId = null;
+      _activeAcceptedCallPayload = null;
+      _callScreenVisible = false;
       socket!.disconnect();
       socket!.dispose();
       socket = null;
