@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:konektizen/core/config/environment.dart';
 import 'package:konektizen/core/router/router.dart';
 import 'package:konektizen/features/sos_video_call/command_center_call_screen.dart';
@@ -13,7 +13,7 @@ class SignalingService with WidgetsBindingObserver {
   factory SignalingService() => instance;
   SignalingService._internal();
 
-  IO.Socket? socket;
+  io.Socket? socket;
   Function(Map<String, dynamic>)? onCallDeclined;
   void Function(Map<String, dynamic>)? onCallEnded;
   void Function(Map<String, dynamic>)? onCaseUpdated;
@@ -76,16 +76,27 @@ class SignalingService with WidgetsBindingObserver {
 
   bool _isPayloadForCurrentReporter(Map<String, dynamic> payload) {
     final reporterId =
-        payload['reporter_id']?.toString() ?? payload['reporterId']?.toString();
+        payload['reporter_id']?.toString() ??
+        payload['reporterId']?.toString() ??
+        payload['target_user_id']?.toString() ??
+        payload['targetUserId']?.toString() ??
+        payload['userId']?.toString();
     return reporterId == null || _userId == null || reporterId == _userId;
+  }
+
+  Set<String> _callAliasesFor(String? room) {
+    final raw = room?.trim();
+    if (raw == null || raw.isEmpty) return {};
+    final clean = raw.startsWith('call_') ? raw.substring(5) : raw;
+    return {raw, clean, 'call_$clean'};
   }
 
   // Global listener for incoming calls from Command Center
   void listenForIncomingCall(String userId) {
-    print(
+    debugPrint(
       '[Signaling] ========== SETTING UP INCOMING CALL LISTENER ==========',
     );
-    print('[Signaling] User ID: $userId');
+    debugPrint('[Signaling] User ID: $userId');
     _userId = userId;
     _attachLifecycleObserver();
 
@@ -94,10 +105,12 @@ class SignalingService with WidgetsBindingObserver {
 
     // Listen for ALL events for debugging
     socket!.onAny((event, data) {
-      print('[Signaling] 📨 RECEIVED EVENT: $event');
-      print('[Signaling] 📦 EVENT DATA: $data');
+      debugPrint('[Signaling] RECEIVED EVENT: $event');
+      debugPrint('[Signaling] EVENT DATA: $data');
     });
     socket!.off('call_accepted');
+    socket!.off('operator_accepted_sos');
+    socket!.off('ai_caller_started');
     socket!.off('c3_sos_ack');
     socket!.off('call_declined');
     socket!.off('sos_dismissed');
@@ -106,7 +119,7 @@ class SignalingService with WidgetsBindingObserver {
     socket!.off('case_updated');
 
     socket!.on('case_updated', (data) {
-      print('[Signaling] case_updated event received: $data');
+      debugPrint('[Signaling] case_updated event received: $data');
       final payload = data is Map
           ? Map<String, dynamic>.from(data)
           : <String, dynamic>{};
@@ -123,13 +136,13 @@ class SignalingService with WidgetsBindingObserver {
             payload['reporter_id']?.toString() ??
             payload['reporterId']?.toString();
         if (reporterId == null || reporterId != _userId) {
-          print('[Signaling] Ignoring SOS ack for reporter: $reporterId');
+          debugPrint('[Signaling] Ignoring SOS ack for reporter: $reporterId');
           return;
         }
       }
 
-      print('[Signaling] 🔔 ========== CALL ACCEPTED RECEIVED ==========');
-      print('[Signaling] Call Data: $payload');
+      debugPrint('[Signaling] CALL ACCEPTED RECEIVED');
+      debugPrint('[Signaling] Call Data: $payload');
 
       _openCallScreenFromPayload(payload);
     }
@@ -139,6 +152,26 @@ class SignalingService with WidgetsBindingObserver {
       openAcceptedCall(data);
     });
 
+    socket!.on('operator_accepted_sos', (data) {
+      openAcceptedCall(data);
+    });
+
+    socket!.on('ai_caller_started', (data) {
+      final payload = data is Map
+          ? Map<String, dynamic>.from(data)
+          : <String, dynamic>{};
+      if (!_isPayloadForCurrentReporter(payload)) return;
+      openAcceptedCall({
+        ...payload,
+        'operatorName': 'AIGOR',
+        'operator_name': 'AIGOR',
+        'type': 'video',
+        'callType': 'video',
+        'video_provider': payload['video_provider'] ?? 'zego',
+        'videoProvider': payload['videoProvider'] ?? 'zego',
+      });
+    });
+
     void handleEnded(dynamic data) {
       final payload = data is Map
           ? Map<String, dynamic>.from(data)
@@ -146,7 +179,8 @@ class SignalingService with WidgetsBindingObserver {
       if (!_isPayloadForCurrentReporter(payload)) return;
       final message = _extractDeclineMessage(payload);
       final enriched = <String, dynamic>{...payload, 'message': message};
-      print('[Signaling] SOS call ended: $enriched');
+      _markPayloadCallEnded(payload);
+      debugPrint('[Signaling] SOS call ended: $enriched');
       onCallEnded?.call(enriched);
       _showDismissMessage(message);
     }
@@ -177,7 +211,8 @@ class SignalingService with WidgetsBindingObserver {
       if (!_isPayloadForCurrentReporter(payload)) return;
       final message = _extractDeclineMessage(payload);
       final enriched = <String, dynamic>{...payload, 'message': message};
-      print('[Signaling] SOS dismissed by C3: $enriched');
+      _markPayloadCallEnded(payload);
+      debugPrint('[Signaling] SOS dismissed by C3: $enriched');
       onCallDeclined?.call(enriched);
       onCallEnded?.call(enriched);
       _showDismissMessage(message);
@@ -196,13 +231,13 @@ class SignalingService with WidgetsBindingObserver {
       socket = null;
     }
 
-    print('[Signaling] Connecting to C3 Socket: $_serverUrl');
+    debugPrint('[Signaling] Connecting to C3 Socket: $_serverUrl');
 
     // Flutter socket_io_client uses the native WebSocket path on Android/iOS.
     // C3 must run Flask-SocketIO with eventlet so this can connect cleanly.
-    socket = IO.io(
+    socket = io.io(
       _serverUrl,
-      IO.OptionBuilder()
+      io.OptionBuilder()
           .setTransports(['websocket'])
           .setPath('/socket.io')
           .enableAutoConnect()
@@ -216,29 +251,31 @@ class SignalingService with WidgetsBindingObserver {
     );
 
     socket!.onConnect((_) {
-      print('[Signaling] ========================================');
-      print('[Signaling] ✅ CONNECTED');
-      print('[Signaling] Socket ID: ${socket!.id}');
+      debugPrint('[Signaling] ========================================');
+      debugPrint('[Signaling] CONNECTED');
+      debugPrint('[Signaling] Socket ID: ${socket!.id}');
 
       // ALIGNMENT: Emit join_reporter immediately on connect/reconnect
       if (_userId != null) {
-        print('[Signaling] Auto-joining reporter room: reporter_$_userId');
+        debugPrint(
+          '[Signaling] Auto-joining reporter room: reporter_$_userId',
+        );
         socket!.emit('join_reporter', {'reporter_id': _userId});
       }
       if (_activeAcceptedCallId != null) {
         joinCallRoom(_activeAcceptedCallId!, role: 'reporter');
       }
-      print('[Signaling] ========================================');
+      debugPrint('[Signaling] ========================================');
     });
 
     socket!.onDisconnect((reason) {
-      print('[Signaling] ⚠️ DISCONNECTED');
-      print('[Signaling] Reason: $reason');
+      debugPrint('[Signaling] DISCONNECTED');
+      debugPrint('[Signaling] Reason: $reason');
     });
 
     socket!.onConnectError((error) {
-      print('[Signaling] ❌ CONNECT ERROR');
-      print('[Signaling] Error: $error');
+      debugPrint('[Signaling] CONNECT ERROR');
+      debugPrint('[Signaling] Error: $error');
     });
   }
 
@@ -301,12 +338,28 @@ class SignalingService with WidgetsBindingObserver {
     }
   }
 
+  bool isCallScreenVisibleFor(String room) {
+    return _callScreenVisible &&
+        _callAliasesFor(_activeAcceptedCallId).contains(room);
+  }
+
   void markCallEnded(String room) {
-    if (_activeAcceptedCallId == room) {
+    if (_callAliasesFor(_activeAcceptedCallId).contains(room)) {
       _activeAcceptedCallId = null;
       _activeAcceptedCallPayload = null;
       _callScreenVisible = false;
     }
+  }
+
+  void _markPayloadCallEnded(Map<String, dynamic> payload) {
+    final room =
+        payload['room_name']?.toString() ??
+        payload['roomName']?.toString() ??
+        payload['room']?.toString() ??
+        payload['callId']?.toString() ??
+        payload['call_id']?.toString();
+    if (room == null || room.isEmpty) return;
+    markCallEnded(room);
   }
 
   void restoreActiveCallScreenIfNeeded() {
@@ -348,7 +401,7 @@ class SignalingService with WidgetsBindingObserver {
         payload['sessionId']?.toString();
 
     if (!force && _activeAcceptedCallId == room && _callScreenVisible) {
-      print('[Signaling] Call screen already open for room: $room');
+      debugPrint('[Signaling] Call screen already open for room: $room');
       return;
     }
 
@@ -366,8 +419,8 @@ class SignalingService with WidgetsBindingObserver {
     };
     joinCallRoom(room, role: 'reporter');
 
-    print('[Signaling] Parsed callId: $callId');
-    print('[Signaling] Parsed room: $room');
+    debugPrint('[Signaling] Parsed callId: $callId');
+    debugPrint('[Signaling] Parsed room: $room');
 
     final navigator = rootNavigatorKey.currentState;
     if (navigator != null) {
@@ -410,7 +463,7 @@ class SignalingService with WidgetsBindingObserver {
   }
 
   void dispose() {
-    print('[Signaling] Disposing socket connection');
+    debugPrint('[Signaling] Disposing socket connection');
     if (_lifecycleObserverAttached) {
       WidgetsBinding.instance.removeObserver(this);
       _lifecycleObserverAttached = false;

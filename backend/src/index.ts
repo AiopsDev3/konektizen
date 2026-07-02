@@ -486,11 +486,17 @@ app.post('/api/cases', authenticateToken, async (req: any, res) => {
 // SOS Alert
 // SOS Alert - Proxy to C3 API
 app.post('/api/sos', authenticateToken, async (req: any, res) => {
-  const { latitude, longitude, message } = req.body; // Accept optional message
+  const { latitude, longitude, message, hotlineNumber, hotline } = req.body;
   const C3_API = process.env.C3_API_BASE_URL || "http://172.16.0.140:5001/api/reporters";
   
-  if (!latitude || !longitude) {
+  if (latitude === undefined || latitude === null || longitude === undefined || longitude === null) {
      return res.status(400).json({ error: 'Location required for SOS' });
+  }
+
+  const parsedLatitude = Number(latitude);
+  const parsedLongitude = Number(longitude);
+  if (!Number.isFinite(parsedLatitude) || !Number.isFinite(parsedLongitude)) {
+     return res.status(400).json({ error: 'Invalid SOS location' });
   }
 
   try {
@@ -506,9 +512,15 @@ app.post('/api/sos', authenticateToken, async (req: any, res) => {
 
     const response = await axios.post(`${C3_API}/sos`, {
         reporter_id: reporterId, // REQUIRED by C3
-        latitude: parseFloat(latitude),
-        longitude: parseFloat(longitude),
+        userId: reporterId,
+        latitude: parsedLatitude,
+        longitude: parsedLongitude,
+        hotlineNumber: hotlineNumber || hotline || '911',
+        hotline: hotlineNumber || hotline || '911',
         message: message || "Emergency Alert", // Default message
+        type: 'video',
+        video: true,
+        video_enabled: true,
     }, {
         headers: {
             'Authorization': req.headers['authorization'] // Forward the token too, just in case

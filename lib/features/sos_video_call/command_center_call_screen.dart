@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -40,8 +41,19 @@ class CommandCenterCallScreen extends StatefulWidget {
 
 class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     with WidgetsBindingObserver {
-  static const String _aiGreeting =
-      'AIGOR ito from C3. Nandito ako. Ano ang emergency?';
+  static const List<String> _aiGreetingOptions = [
+    'AIGOR ito from the command center. Nandito ako. Ano ang emergency?',
+    'This is AIGOR from the command center. I am listening. What is happening right now?',
+    'AIGOR from the command center ito. Stay with me. Ano ang kailangan mong tulong?',
+  ];
+  static const List<String> _noSpeechPromptOptions = [
+    'Nandito pa ako. Hindi pa malinaw ang dating ng boses mo. Subukan ulit, kahit maikli lang.',
+    'I am still listening. Sabihin mo muna kung ano ang emergency sa harap mo ngayon.',
+    'Stay with me. Kung kaya mong magsalita, sabihin mo kung sunog, aksidente, baha, o may nasaktan.',
+    'Narito ako. Magsalita ka lang kapag kaya mo, at makikinig ako ulit.',
+  ];
+
+  final Random _voiceRandom = Random();
 
   late final CallController _controller;
   late final String _roomName;
@@ -56,8 +68,8 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
   bool _isAiSpeaking = false;
   bool _bargeInActive = false;
   bool _isHandlingCallerTranscript = false;
-  bool _hasAskedAiFollowUp = false;
   bool _hasRequestedCallEnd = false;
+  bool _speechInterruptedByCaller = false;
   final bool _speechDiagnosticsEnabled = true;
   int _aiListenAttempt = 0;
   String? _aiCallerSessionId;
@@ -66,8 +78,10 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
   String? _bargeInPrompt;
   Timer? _bargeInTimer;
   Timer? _followUpFallbackTimer;
+  Timer? _silenceNudgeTimer;
   Completer<void>? _activeNeuralVoiceCompleter;
   DateTime? _listenStartedAt;
+  DateTime? _ignoreSpeechUntil;
   String _callerReportDraft = '';
   String _pendingAiReportTranscript = '';
   String _aiStatusMessage = 'AIGOR is preparing...';
@@ -106,6 +120,10 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       'call_accepted',
       _handleOperatorAccepted,
     );
+    SignalingService.instance.socket?.on(
+      'operator_accepted_sos',
+      _handleOperatorAccepted,
+    );
     SignalingService.instance.socket?.on('c3_sos_ack', _handleOperatorAccepted);
     SignalingService.instance.socket?.on(
       'ai_caller_started',
@@ -134,7 +152,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     SignalingService.instance.onCallEnded = _handleGlobalCallEnded;
     WakelockPlus.enable();
     if (_isAiTriageCall) {
-      Future.delayed(const Duration(milliseconds: 900), () {
+      Future.delayed(const Duration(milliseconds: 180), () {
         unawaited(_speakAiGreeting());
       });
     }
@@ -155,6 +173,10 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     );
     SignalingService.instance.socket?.off(
       'call_accepted',
+      _handleOperatorAccepted,
+    );
+    SignalingService.instance.socket?.off(
+      'operator_accepted_sos',
       _handleOperatorAccepted,
     );
     SignalingService.instance.socket?.off(
@@ -192,6 +214,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     WakelockPlus.disable();
     _bargeInTimer?.cancel();
     _followUpFallbackTimer?.cancel();
+    _silenceNudgeTimer?.cancel();
     _speech.stop();
     _neuralVoicePlayer.dispose();
     _controller.dispose();
@@ -227,8 +250,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     final name = (widget.operatorName ?? '').toLowerCase();
     return name.contains('ai') ||
         name.contains('aigor') ||
-        (widget.aiCallerSessionId?.trim().isNotEmpty ?? false) ||
-        (_aiCallerSessionId?.trim().isNotEmpty ?? false);
+        (widget.aiCallerSessionId?.trim().isNotEmpty ?? false);
   }
 
   bool get _usesCallStreamForAiHearing => false;
@@ -279,7 +301,10 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       );
     }
     try {
-      await _speakText(_aiGreeting, allowInterrupt: true);
+      await _speakText(
+        _pickVoiceLine(_aiGreetingOptions),
+        allowInterrupt: true,
+      );
     } catch (error) {
       debugPrint('[SOS AI Voice] TTS speak failed: $error');
     } finally {
@@ -289,7 +314,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
           !_handoffRequested &&
           !_hasSubmittedAiReport &&
           !_isSubmittingAiReport) {
-        Future.delayed(const Duration(milliseconds: 650), () {
+        Future.delayed(const Duration(milliseconds: 250), () {
           if (!_controller.isEnding &&
               !_operatorAccepted &&
               !_handoffRequested &&
@@ -306,10 +331,24 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     }
   }
 
-  Future<void> _speakText(String text, {bool allowInterrupt = false}) async {
-    if (_operatorAccepted) return;
+  Future<bool> _speakText(String text, {bool allowInterrupt = false}) async {
+    if (_operatorAccepted) return false;
     try {
+      _bargeInTimer?.cancel();
+      _silenceNudgeTimer?.cancel();
+      _bargeInActive = false;
+      _bargeInPrompt = null;
+      _speechInterruptedByCaller = false;
+      _ignoreSpeechUntil = DateTime.now().add(
+        Duration(milliseconds: allowInterrupt ? 250 : 900),
+      );
+      try {
+        await _speech.stop();
+      } catch (_) {}
       _isAiSpeaking = true;
+      if (allowInterrupt) {
+        await _startBargeInListening(text);
+      }
       final playedNeuralVoice = await _playAigorNeuralVoice(text);
       if (!playedNeuralVoice) {
         debugPrint(
@@ -318,8 +357,17 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       }
     } finally {
       _isAiSpeaking = false;
+      _ignoreSpeechUntil = DateTime.now().add(
+        const Duration(milliseconds: 900),
+      );
       await _endBargeInWindow();
     }
+    return _speechInterruptedByCaller;
+  }
+
+  String _pickVoiceLine(List<String> options) {
+    if (options.isEmpty) return '';
+    return options[_voiceRandom.nextInt(options.length)];
   }
 
   Future<bool> _playAigorNeuralVoice(String text) async {
@@ -332,7 +380,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       ).replace(queryParameters: {'voice': 'aigor', 'text': trimmed});
       final response = await http
           .get(uri, headers: const {'Bypass-Tunnel-Reminder': 'true'})
-          .timeout(const Duration(seconds: 12));
+          .timeout(const Duration(seconds: 8));
       final contentType = (response.headers['content-type'] ?? '')
           .toLowerCase();
       final bytes = response.bodyBytes;
@@ -354,7 +402,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       completeSub = _neuralVoicePlayer.onPlayerComplete.listen((_) {
         if (!completion.isCompleted) completion.complete();
       });
-      final fallbackTimer = Timer(const Duration(seconds: 18), () {
+      final fallbackTimer = Timer(const Duration(seconds: 10), () {
         if (!completion.isCompleted) completion.complete();
       });
 
@@ -409,9 +457,54 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     } catch (_) {}
   }
 
+  Future<void> _startBargeInListening(String prompt) async {
+    if (!_isAiTriageCall ||
+        _controller.isEnding ||
+        _operatorAccepted ||
+        _hasSubmittedAiReport ||
+        _isSubmittingAiReport) {
+      return;
+    }
+    try {
+      final hasMicPermission = await _ensureMicrophonePermission();
+      if (!hasMicPermission) return;
+      final available = await _speech.initialize(
+        onStatus: _handleSpeechStatus,
+        onError: _handleSpeechError,
+        debugLogging: _speechDiagnosticsEnabled,
+        finalTimeout: const Duration(seconds: 1),
+      );
+      if (!available) return;
+      _preferredSpeechLocaleId ??= await _pickSpeechLocaleId();
+      _bargeInActive = true;
+      _bargeInPrompt = prompt;
+      _callerReportDraft = '';
+      await _speech.listen(
+        onResult: _handleSpeechResult,
+        onSoundLevelChange: _handleSpeechSoundLevel,
+        listenOptions: SpeechListenOptions(
+          listenFor: const Duration(seconds: 20),
+          pauseFor: const Duration(seconds: 1),
+          localeId: _preferredSpeechLocaleId,
+          partialResults: true,
+          cancelOnError: false,
+          listenMode: ListenMode.dictation,
+        ),
+      );
+      _bargeInTimer = Timer(const Duration(seconds: 20), () {
+        unawaited(_endBargeInWindow());
+      });
+    } catch (error) {
+      debugPrint('[SOS AI Voice] Barge-in listener failed: $error');
+      _bargeInActive = false;
+      _bargeInPrompt = null;
+    }
+  }
+
   bool _isPayloadForThisCall(dynamic data) {
     if (data is! Map) return false;
     final payload = Map<String, dynamic>.from(data);
+    final action = payload['action']?.toString();
     final expectedSosId = widget.callId.startsWith('sos_')
         ? widget.callId.substring(4)
         : null;
@@ -447,8 +540,20 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
         payload['callId']?.toString() ??
         payload['id']?.toString();
     if (payloadCallId == null || payloadCallId.isEmpty) return false;
-    return _callAliasesFor(widget.callId).contains(payloadCallId) ||
+    final matchesCurrentCall =
+        _callAliasesFor(widget.callId).contains(payloadCallId) ||
         _callAliasesFor(_roomName).contains(payloadCallId);
+    if (matchesCurrentCall) return true;
+
+    if (action == 'accepted' && _handoffRequested) {
+      final currentAliases = {
+        ..._callAliasesFor(widget.callId),
+        ..._callAliasesFor(_roomName),
+      };
+      final payloadAliases = _callAliasesFor(payloadCallId);
+      return payloadAliases.any(currentAliases.contains);
+    }
+    return false;
   }
 
   void _handleAiCallerStarted(dynamic data) {
@@ -493,7 +598,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     if (!mounted || _controller.isEnding) return;
     setState(
       () => _aiStatusMessage =
-          'Na-save ni AIGOR ang report. Waiting for operator...',
+          'Na-save ni AIGOR ang report. Waiting for command center...',
     );
   }
 
@@ -512,7 +617,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     if (mounted && !_controller.isEnding) {
       setState(
         () => _aiStatusMessage =
-            'Hindi malinaw ang audio. Ikokonekta ka sa operator.',
+            'Hindi malinaw ang audio. Ikokonekta ka sa command center.',
       );
     }
     unawaited(_handoffToOperator());
@@ -561,14 +666,14 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       _setAiStatus('Microphone is allowed. Preparing AIGOR to listen...');
       await _prepareSpeechRecognizerForCaller();
       if (_isAiTriageCall) {
-        await Future.delayed(const Duration(milliseconds: 850));
+        await Future.delayed(const Duration(milliseconds: 150));
       }
       _setAiStatus('Starting phone speech recognition...');
       final available = await _speech.initialize(
         onStatus: _handleSpeechStatus,
         onError: _handleSpeechError,
         debugLogging: _speechDiagnosticsEnabled,
-        finalTimeout: const Duration(seconds: 2),
+        finalTimeout: const Duration(seconds: 5),
       );
       if (!available) {
         throw StateError('Speech recognition is not available on this device.');
@@ -580,14 +685,15 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
         onResult: _handleSpeechResult,
         onSoundLevelChange: _handleSpeechSoundLevel,
         listenOptions: SpeechListenOptions(
-          listenFor: const Duration(seconds: 45),
-          pauseFor: const Duration(seconds: 8),
+          listenFor: const Duration(seconds: 120),
+          pauseFor: const Duration(seconds: 5),
           localeId: _preferredSpeechLocaleId,
           partialResults: true,
           cancelOnError: false,
           listenMode: ListenMode.dictation,
         ),
       );
+      _armSilenceNudge();
       _setAiStatus(
         _speech.isListening
             ? 'Listening now. Please say the emergency clearly.'
@@ -597,7 +703,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       debugPrint('[SOS AI Voice] Speech listen failed: $error');
       _setAiStatus('AIGOR could not start listening: $error');
       await _speakAndHandoff(
-        'Nagkaproblema ako sa pakikinig. Ikokonekta na kita sa operator.',
+        'Nagkaproblema ako sa pakikinig. Ikokonekta na kita sa command center.',
       );
     }
   }
@@ -614,6 +720,37 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     try {
       await _speech.stop();
     } catch (_) {}
+  }
+
+  void _armSilenceNudge() {
+    _silenceNudgeTimer?.cancel();
+    _silenceNudgeTimer = Timer(const Duration(seconds: 10), () {
+      if (_controller.isEnding ||
+          _operatorAccepted ||
+          _hasSubmittedAiReport ||
+          _isSubmittingAiReport ||
+          _isHandlingCallerTranscript ||
+          _isAiSpeaking) {
+        return;
+      }
+      final heardAnything = _callerReportDraft.trim().isNotEmpty;
+      if (heardAnything) return;
+      _hasStartedAiListening = false;
+      unawaited(_speech.stop().catchError((_) {}));
+      unawaited(
+        _speakText(
+          _pickVoiceLine(_noSpeechPromptOptions),
+          allowInterrupt: true,
+        ).then((_) {
+          if (!_controller.isEnding &&
+              !_operatorAccepted &&
+              !_hasSubmittedAiReport &&
+              !_isSubmittingAiReport) {
+            unawaited(_startAiReportListening());
+          }
+        }),
+      );
+    });
   }
 
   Future<bool> _ensureMicrophonePermission() async {
@@ -650,7 +787,18 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     debugPrint(
       '[SOS AI Voice] Raw speech result="$words" final=${result.finalResult} confidence=${result.confidence}',
     );
+    final ignoreUntil = _ignoreSpeechUntil;
+    if (words.isNotEmpty &&
+        ignoreUntil != null &&
+        DateTime.now().isBefore(ignoreUntil)) {
+      debugPrint('[SOS AI Voice] Ignoring likely AIGOR speaker echo: "$words"');
+      return;
+    }
+    if (ignoreUntil != null && DateTime.now().isAfter(ignoreUntil)) {
+      _ignoreSpeechUntil = null;
+    }
     if (words.isNotEmpty && mounted) {
+      _silenceNudgeTimer?.cancel();
       setState(() => _aiStatusMessage = 'Narinig ni AIGOR: $words');
     }
     if (_bargeInActive && _isAiSpeaking) {
@@ -667,6 +815,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       }
       if (result.finalResult || _looksUrgentEnoughToInterrupt(words)) {
         _bargeInActive = false;
+        _speechInterruptedByCaller = true;
         unawaited(_stopAiSpeech());
         unawaited(_handleCallerTranscript(words));
       }
@@ -699,10 +848,12 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       setState(() => _aiStatusMessage = _speechStatusMessage(status));
     }
     if (status == 'notListening' || status == 'done') {
+      _silenceNudgeTimer?.cancel();
       if (_bargeInActive && _isAiSpeaking) {
         final draft = _callerReportDraft.trim();
         if (_isLikelyCallerSpeech(draft, forInterrupt: true)) {
           _bargeInActive = false;
+          _speechInterruptedByCaller = true;
           unawaited(_stopAiSpeech());
           unawaited(_handleCallerTranscript(draft));
         }
@@ -740,14 +891,36 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       '[SOS AI Voice] Speech error: ${error.errorMsg} permanent=${error.permanent}',
     );
     _setAiStatus('Speech error: ${error.errorMsg}');
+    _silenceNudgeTimer?.cancel();
     if (_bargeInActive && _isAiSpeaking) {
       return;
     }
     if (!_hasSubmittedAiReport &&
         !_isSubmittingAiReport &&
         !_isHandlingCallerTranscript) {
+      final draft = _callerReportDraft.trim();
+      if (_isLikelyCallerSpeech(draft, forInterrupt: false)) {
+        unawaited(_handleCallerTranscript(draft));
+        return;
+      }
+      if (_isSpeechTimeout(error) && _aiListenAttempt < 8) {
+        _hasStartedAiListening = false;
+        Future.delayed(const Duration(milliseconds: 800), () {
+          if (!_controller.isEnding && !_hasSubmittedAiReport) {
+            unawaited(_startAiReportListening());
+          }
+        });
+        return;
+      }
       unawaited(_retryOrHandoffAfterNoSpeech());
     }
+  }
+
+  bool _isSpeechTimeout(SpeechRecognitionError error) {
+    final message = error.errorMsg.toLowerCase();
+    return message.contains('speech_timeout') ||
+        message.contains('speech timeout') ||
+        message.contains('no speech');
   }
 
   Future<void> _retryOrHandoffAfterNoSpeech() async {
@@ -757,19 +930,17 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
         _isHandlingCallerTranscript) {
       return;
     }
-    if (_hasAskedAiFollowUp && _pendingAiReportTranscript.trim().isNotEmpty) {
-      await _submitAiReport(_pendingAiReportTranscript);
-      return;
-    }
     _hasStartedAiListening = false;
-    if (_aiListenAttempt < 3) {
+    if (_aiListenAttempt < 8) {
       await _speakText(_retryPromptForAttempt(), allowInterrupt: true);
       unawaited(_startAiReportListening());
       return;
     }
-    await _speakAndHandoff(
-      'Hindi ko pa rin malinaw na narinig. Ikokonekta ko na kayo sa operator.',
+    await _speakText(
+      _pickVoiceLine(_noSpeechPromptOptions),
+      allowInterrupt: true,
     );
+    unawaited(_startAiReportListening());
   }
 
   void _handleSpeechSoundLevel(double level) {
@@ -801,10 +972,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
   }
 
   String _retryPromptForAttempt() {
-    if (_aiListenAttempt <= 1) {
-      return 'AIGOR ito. Medyo mahina ang dating ng boses. Pakisabi ulit kung ano ang emergency.';
-    }
-    return 'Nandito pa ako. Sabihin mo kahit maikli lang, tulad ng sunog, aksidente, baha, o may nasaktan.';
+    return _pickVoiceLine(_noSpeechPromptOptions);
   }
 
   bool _isLikelyCallerSpeech(
@@ -828,10 +996,48 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     if (confidence > 0 && confidence < 0.18) return false;
 
     final urgent = _looksUrgentEnoughToInterrupt(normalized);
+    final conversational = _looksLikeHumanCallerMessage(normalized);
     if (forInterrupt) {
-      return urgent || tokens.length >= 3 || normalized.length >= 14;
+      return urgent ||
+          conversational ||
+          tokens.length >= 3 ||
+          normalized.length >= 14;
     }
-    return urgent || tokens.length >= 2 || normalized.length >= 6;
+    return urgent ||
+        conversational ||
+        tokens.isNotEmpty ||
+        normalized.length >= 3;
+  }
+
+  bool _looksLikeHumanCallerMessage(String words) {
+    final normalized = _normalizeSpeechText(words);
+    if (normalized.isEmpty) return false;
+    if (_containsAny(normalized, [
+      'hello',
+      'helo',
+      'hi',
+      'hey',
+      'aigor',
+      'ai',
+      'musta',
+      'kumusta',
+      'naririnig',
+      'nandyan',
+      'yes',
+      'oo',
+      'opo',
+      'hindi',
+      'no',
+      'wait',
+      'sandali',
+      'teka',
+      'tulong',
+      'help',
+      'saklolo',
+    ])) {
+      return true;
+    }
+    return normalized.length >= 3;
   }
 
   bool _looksUrgentEnoughToInterrupt(String words) {
@@ -876,45 +1082,128 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     } catch (_) {}
 
     try {
-      if (_shouldSubmitImmediately(cleaned)) {
+      final previousTranscript = _pendingAiReportTranscript.trim();
+      final combinedTranscript = [
+        previousTranscript,
+        cleaned,
+      ].where((part) => part.isNotEmpty).join(' ');
+      unawaited(_syncAiTranscriptChunk(cleaned));
+
+      if (_shouldSubmitImmediately(combinedTranscript)) {
         _followUpFallbackTimer?.cancel();
-        _pendingAiReportTranscript = cleaned;
+        _pendingAiReportTranscript = combinedTranscript;
         if (mounted) {
           setState(
             () => _aiStatusMessage = 'AIGOR understood. Saving report...',
           );
         }
-        await _submitAiReport(cleaned);
-        return;
-      }
-
-      if (!_hasAskedAiFollowUp) {
-        _followUpFallbackTimer?.cancel();
-        _pendingAiReportTranscript = cleaned;
-        _hasAskedAiFollowUp = true;
-        _hasStartedAiListening = false;
-        if (mounted) {
-          setState(() => _aiStatusMessage = 'AIGOR is checking details...');
-        }
-        await _speakText(_buildAigorFollowUp(cleaned), allowInterrupt: true);
-        if (!_controller.isEnding &&
-            !_hasSubmittedAiReport &&
-            !_isSubmittingAiReport) {
-          _callerReportDraft = '';
-          unawaited(_startAiReportListening());
-          _armFollowUpFallback();
-        }
+        await _submitAiReport(combinedTranscript);
         return;
       }
 
       _followUpFallbackTimer?.cancel();
-      final combined = [
-        _pendingAiReportTranscript.trim(),
+      _pendingAiReportTranscript = combinedTranscript;
+      _hasStartedAiListening = false;
+      if (mounted) {
+        setState(() => _aiStatusMessage = 'AIGOR is thinking...');
+      }
+      final aiReply = await _requestAigorFollowUp(
         cleaned,
-      ].where((part) => part.isNotEmpty).join(' ');
-      await _submitAiReport(combined);
+        history: previousTranscript,
+      );
+      final readyToSubmit = aiReply['ready_to_submit'] == true;
+      final mergedTranscript =
+          aiReply['merged_transcript']?.toString().trim() ?? combinedTranscript;
+      if (readyToSubmit && _shouldSubmitImmediately(mergedTranscript)) {
+        await _submitAiReport(
+          mergedTranscript.isNotEmpty ? mergedTranscript : combinedTranscript,
+        );
+        return;
+      }
+      final followUp =
+          aiReply['caller_reply']?.toString().trim().isNotEmpty == true
+          ? aiReply['caller_reply'].toString().trim()
+          : _buildAigorFollowUp(combinedTranscript);
+      await _speakText(followUp, allowInterrupt: true);
+      if (!_controller.isEnding &&
+          !_hasSubmittedAiReport &&
+          !_isSubmittingAiReport) {
+        _callerReportDraft = '';
+        unawaited(_startAiReportListening());
+        _armFollowUpFallback();
+      }
     } finally {
       _isHandlingCallerTranscript = false;
+    }
+  }
+
+  Future<void> _syncAiTranscriptChunk(String transcript) async {
+    final cleaned = transcript.trim();
+    if (cleaned.isEmpty || _controller.isEnding) return;
+    try {
+      final token = await apiService.getToken();
+      final sessionId = _aiCallerSessionId ?? _deriveAiSessionId(widget.callId);
+      final uri = Uri.parse(
+        '${ApiService.baseUrl}/ai-caller/sessions/${Uri.encodeComponent(sessionId)}/transcript',
+      );
+      await http
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode({
+              'text': cleaned,
+              'final': false,
+              'analyze': false,
+            }),
+          )
+          .timeout(const Duration(seconds: 5));
+    } catch (error) {
+      debugPrint('[SOS AI Voice] Transcript chunk sync failed: $error');
+    }
+  }
+
+  Future<Map<String, dynamic>> _requestAigorFollowUp(
+    String transcript, {
+    String history = '',
+  }) async {
+    final fallback = <String, dynamic>{
+      'ready_to_submit': false,
+      'caller_reply': _buildAigorFollowUp(transcript),
+      'merged_transcript': [
+        history.trim(),
+        transcript.trim(),
+      ].where((part) => part.isNotEmpty).join(' '),
+    };
+
+    try {
+      final token = await apiService.getToken();
+      final sessionId = _aiCallerSessionId ?? _deriveAiSessionId(widget.callId);
+      final uri = Uri.parse(
+        '${ApiService.baseUrl}/ai-caller/sessions/${Uri.encodeComponent(sessionId)}/reply',
+      );
+      final response = await http
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode({'text': transcript, 'history': history}),
+          )
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return fallback;
+      }
+      final decoded = jsonDecode(response.body);
+      final reply = decoded is Map ? decoded['reply'] : null;
+      if (reply is! Map) return fallback;
+      return Map<String, dynamic>.from(reply);
+    } catch (error) {
+      debugPrint('[SOS AI Voice] AIGOR follow-up request failed: $error');
+      return fallback;
     }
   }
 
@@ -929,7 +1218,19 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
           _isHandlingCallerTranscript) {
         return;
       }
-      unawaited(_submitAiReport(pending));
+      _hasStartedAiListening = false;
+      unawaited(
+        _speakText(
+          _pickVoiceLine(_noSpeechPromptOptions),
+          allowInterrupt: true,
+        ).then((_) {
+          if (!_controller.isEnding &&
+              !_hasSubmittedAiReport &&
+              !_isSubmittingAiReport) {
+            unawaited(_startAiReportListening());
+          }
+        }),
+      );
     });
   }
 
@@ -961,9 +1262,9 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       'burning',
     ])) {
       if (hasInjury || hasTrapped) {
-        return 'Copy, fire emergency with possible rescue need. Lumayo sa usok kung kaya. Nasaan banda ang tao, loob ba ng bahay o labas?';
+        return 'Copy, may sunog. Lumayo sa usok kung kaya. Saan banda ito, at nasa loob ba o labas ang taong nanganganib?';
       }
-      return 'Copy, fire emergency. Ire-record ko agad ito. Kung ligtas magsalita, sabihin kung may tao sa loob o may nasaktan.';
+      return 'Copy, may sunog. Kung ligtas magsalita, ano ang nangyayari ngayon, saan banda, at may tao ba sa loob o may nasaktan?';
     }
     if (_containsAny(text, [
       'suntukan',
@@ -986,10 +1287,10 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       'crash',
       'nadisgrasya',
     ])) {
-      return 'Copy, accident report. Ire-record ko ito. May injured ba o kailangan ng ambulance?';
+      return 'Copy, aksidente ito. Ano ang nangyari, saan banda, at may injured ba o kailangan ng ambulance?';
     }
     if (_containsAny(text, ['baha', 'flood', 'lubog', 'ulan'])) {
-      return 'Copy, flood emergency. Pumunta sa mas mataas na lugar kung kaya. May stranded ba o kailangan ng rescue?';
+      return 'Copy, baha ang narinig ko. Pumunta sa mas mataas na lugar kung kaya. Saan banda at may stranded ba o kailangan ng rescue?';
     }
     if (_containsAny(text, ['tulong', 'help', 'saklolo', 'emergency'])) {
       return 'Nandito ako. Sabihin mo muna ang pinaka-delikasong nangyayari: sunog, aksidente, baha, gulo, o may nasaktan?';
@@ -1003,6 +1304,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
 
   bool _shouldSubmitImmediately(String transcript) {
     final text = transcript.toLowerCase();
+    if (!_hasEnoughEmergencyDetailForSubmit(text)) return false;
     return _containsAny(text, [
       'sunog',
       'fire',
@@ -1031,6 +1333,33 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       'suntukan',
       'away',
       'gulo',
+    ]);
+  }
+
+  bool _hasEnoughEmergencyDetailForSubmit(String transcript) {
+    final normalized = _normalizeSpeechText(transcript);
+    final tokens = normalized
+        .split(' ')
+        .where((token) => token.trim().length > 1)
+        .toList();
+    if (tokens.length >= 5) return true;
+    return _containsAny(normalized, [
+      'dito sa',
+      'sa bahay',
+      'sa kalsada',
+      'sa building',
+      'sa loob',
+      'may tao',
+      'may bata',
+      'may injured',
+      'may nasaktan',
+      'may sugat',
+      'may dugo',
+      'may naipit',
+      'hindi makahinga',
+      'kailangan ambulance',
+      'need ambulance',
+      'malapit sa',
     ]);
   }
 
@@ -1068,7 +1397,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
             },
             body: jsonEncode({'text': cleaned, 'final': true, 'analyze': true}),
           )
-          .timeout(const Duration(seconds: 25));
+          .timeout(const Duration(seconds: 16));
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw StateError('AI report save failed: ${response.statusCode}');
@@ -1076,16 +1405,74 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
 
       final decoded = jsonDecode(response.body);
       final session = decoded is Map ? decoded['session'] : null;
+      final sessionPayload = session is Map
+          ? Map<String, dynamic>.from(session)
+          : <String, dynamic>{};
+      if (!_isAiSessionReadyForHandoff(sessionPayload)) {
+        _hasSubmittedAiReport = false;
+        _isSubmittingAiReport = false;
+        final followUp = _buildAiFollowUpFromSession(
+          sessionPayload,
+          fallbackTranscript: cleaned,
+        );
+        if (mounted) {
+          setState(() => _aiStatusMessage = 'AIGOR needs one more detail...');
+        }
+        await _speakText(followUp, allowInterrupt: true);
+        if (!_controller.isEnding &&
+            !_hasSubmittedAiReport &&
+            !_isSubmittingAiReport) {
+          _callerReportDraft = '';
+          _hasStartedAiListening = false;
+          unawaited(_startAiReportListening());
+          _armFollowUpFallback();
+        }
+        return;
+      }
       final responseText = _buildAiAcknowledgement(session);
       await _speakAndHandoff(responseText);
     } catch (error) {
       debugPrint('[SOS AI Voice] Report submit failed: $error');
       await _speakAndHandoff(
-        'Nagkaproblema sa pag-save ng report. Ikokonekta na kita sa operator.',
+        'Nagkaproblema sa pag-save ng report. Ikokonekta na kita sa command center.',
       );
     } finally {
       _isSubmittingAiReport = false;
     }
+  }
+
+  bool _isAiSessionReadyForHandoff(Map<String, dynamic> session) {
+    final analysis = session['analysis'] is Map
+        ? Map<String, dynamic>.from(session['analysis'] as Map)
+        : <String, dynamic>{};
+    final status = session['status']?.toString();
+    final hasReport =
+        session['report_id'] != null || session['reportId'] != null;
+    final hasIncident =
+        session['incident_id'] != null || session['incidentId'] != null;
+    final aiReady =
+        analysis['ai_ready_for_handoff'] == true ||
+        analysis['aiReadyForHandoff'] == true;
+    return hasReport &&
+        hasIncident &&
+        aiReady &&
+        (status == 'report_created' || status == 'handoff');
+  }
+
+  String _buildAiFollowUpFromSession(
+    Map<String, dynamic> session, {
+    required String fallbackTranscript,
+  }) {
+    final analysis = session['analysis'] is Map
+        ? Map<String, dynamic>.from(session['analysis'] as Map)
+        : <String, dynamic>{};
+    final callerReply =
+        analysis['caller_reply']?.toString().trim() ??
+        analysis['callerReply']?.toString().trim();
+    if (callerReply != null && callerReply.isNotEmpty) {
+      return callerReply;
+    }
+    return _buildAigorFollowUp(fallbackTranscript);
   }
 
   String _buildAiAcknowledgement(dynamic session) {
@@ -1095,6 +1482,12 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     final analysis = payload['analysis'] is Map
         ? Map<String, dynamic>.from(payload['analysis'] as Map)
         : <String, dynamic>{};
+    final callerReply =
+        analysis['caller_reply']?.toString().trim() ??
+        analysis['callerReply']?.toString().trim();
+    if (callerReply != null && callerReply.isNotEmpty) {
+      return callerReply;
+    }
     final title = analysis['title']?.toString().trim();
     final severity = analysis['severity']?.toString().trim();
     final category =
@@ -1114,7 +1507,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
         ? ' Priority niya ay $severity.'
         : '';
     final safetyLine = _safetyLineForCategory(category);
-    return 'Okay, na-save ko na: $details.$severityText $safetyLine Ipapasa na kita sa operator. Stay on the line.';
+    return 'Okay, na-save ko na: $details.$severityText $safetyLine Ipapasa na kita sa command center. Stay on the line.';
   }
 
   String _safetyLineForCategory(String? category) {
@@ -1151,7 +1544,10 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       await _stopAiSpeech();
     } catch (_) {}
     try {
-      await _speakText(message);
+      final interrupted = await _speakText(message, allowInterrupt: true);
+      if (interrupted) {
+        return;
+      }
     } catch (error) {
       debugPrint('[SOS AI Voice] Acknowledgement failed: $error');
     }
@@ -1197,14 +1593,22 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       final uri = Uri.parse(
         '${ApiService.baseUrl}/ai-caller/sessions/${Uri.encodeComponent(sessionId)}/handoff',
       );
-      await http
+      final response = await http
           .post(
             uri,
             headers: {if (token != null) 'Authorization': 'Bearer $token'},
           )
           .timeout(const Duration(seconds: 10));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        _handoffRequested = false;
+        if (mounted) {
+          setState(() => _aiStatusMessage = 'AIGOR needs more details first.');
+        }
+        return;
+      }
     } catch (error) {
       debugPrint('[SOS AI Voice] Handoff request failed: $error');
+      _handoffRequested = false;
       if (mounted) {
         setState(
           () => _aiStatusMessage =
@@ -1228,6 +1632,9 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     }
     if (_operatorAccepted) {
       if (incomingOperatorName != null && mounted) setState(() {});
+      if (!_controller.hasRemoteParticipant && !_controller.isConnecting) {
+        unawaited(_connectOperatorVideo());
+      }
       return;
     }
     _operatorAccepted = true;
@@ -1240,6 +1647,11 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
         () => _aiStatusMessage = 'Command center accepted. Connecting call...',
       );
     }
+    await _connectOperatorVideo();
+  }
+
+  Future<void> _connectOperatorVideo() async {
+    if (_controller.isEnding) return;
     try {
       await _speech.stop();
     } catch (_) {}
@@ -1247,6 +1659,8 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       await _stopAiSpeech();
     } catch (_) {}
     try {
+      SignalingService.instance.joinCallRoom(_roomName, role: 'reporter');
+      await _controller.ensureCameraEnabled();
       await _controller.setNativeMicrophoneMuted(false);
       await _controller.resumePublishingAfterAiTriage();
     } catch (error) {

@@ -128,8 +128,8 @@ class CallController {
       _isZegoConnected = true;
 
       _publishStreamId = token.publishStreamId;
-      await ZegoExpressEngine.instance.muteMicrophone(deferPublishing);
-      await ZegoExpressEngine.instance.enableCamera(startWithCamera);
+      await ZegoExpressEngine.instance.muteMicrophone(false);
+      await ZegoExpressEngine.instance.enableCamera(isCameraEnabled);
       await _startLocalPreview();
       if (publishAfterConnect || !deferPublishing) {
         await _startPublishing();
@@ -140,6 +140,15 @@ class CallController {
       isConnecting = false;
       error = null;
     } catch (e) {
+      if (deferPublishing && !publishAfterConnect) {
+        debugPrint('[CallController] ZEGO prep skipped during AI triage: $e');
+        await _resetZegoEngine(clearCallbacks: true);
+        _isPublishing = false;
+        _isReconnectScheduled = false;
+        isConnecting = false;
+        error = null;
+        return;
+      }
       error = e.toString();
       _scheduleReconnect();
     } finally {
@@ -231,9 +240,13 @@ class CallController {
   }
 
   Future<void> pausePublishingForAiTriage() async {
+    if (!_engineReady || !_isZegoConnected || isEnding) {
+      _isPublishing = false;
+      return;
+    }
     try {
-      await ZegoExpressEngine.instance.muteMicrophone(true);
       if (_isPublishing) {
+        await ZegoExpressEngine.instance.muteMicrophone(true);
         await ZegoExpressEngine.instance.stopPublishingStream();
       }
     } catch (e) {
@@ -256,7 +269,13 @@ class CallController {
   }
 
   Future<void> _startPublishing() async {
-    if (_publishStreamId == null || _isPublishing || isEnding) return;
+    if (!_engineReady ||
+        !_isZegoConnected ||
+        _publishStreamId == null ||
+        _isPublishing ||
+        isEnding) {
+      return;
+    }
     await ZegoExpressEngine.instance.startPublishingStream(_publishStreamId!);
     _isPublishing = true;
   }
@@ -284,6 +303,18 @@ class CallController {
       await ZegoExpressEngine.instance.enableCamera(isCameraEnabled);
     }
     onStateChanged();
+  }
+
+  Future<void> ensureCameraEnabled() async {
+    var changed = false;
+    if (!isCameraEnabled) {
+      isCameraEnabled = true;
+      changed = true;
+    }
+    if (_isZegoConnected) {
+      await ZegoExpressEngine.instance.enableCamera(true);
+    }
+    if (changed) onStateChanged();
   }
 
   Future<void> disconnect() async {

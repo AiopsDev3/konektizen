@@ -129,6 +129,9 @@ class _SOSConfirmationScreenState extends State<SOSConfirmationScreen> {
           (callId.startsWith('call_') || callId.startsWith('sos_')
               ? callId
               : 'call_$callId');
+      if (_signaling.isCallScreenVisibleFor(roomName)) {
+        return;
+      }
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => CommandCenterCallScreen(
