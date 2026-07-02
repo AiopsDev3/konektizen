@@ -67,11 +67,14 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
   bool _operatorAccepted = false;
   bool _isAiSpeaking = false;
   bool _bargeInActive = false;
+  bool _isPushToTalkRecording = false;
   bool _isHandlingCallerTranscript = false;
   bool _hasRequestedCallEnd = false;
   bool _speechInterruptedByCaller = false;
   final bool _speechDiagnosticsEnabled = true;
   int _aiListenAttempt = 0;
+  int _callerTurnId = 0;
+  int _latestTranscriptTurnId = 0;
   String? _aiCallerSessionId;
   String? _acceptedOperatorName;
   String? _preferredSpeechLocaleId;
@@ -83,6 +86,8 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
   DateTime? _listenStartedAt;
   DateTime? _ignoreSpeechUntil;
   String _callerReportDraft = '';
+  String _pushToTalkDraft = '';
+  String _latestCallerTranscript = '';
   String _pendingAiReportTranscript = '';
   String _aiStatusMessage = 'AIGOR is preparing...';
 
@@ -255,6 +260,17 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
 
   bool get _usesCallStreamForAiHearing => false;
 
+  bool get _usesPushToTalkForAiTriage => true;
+
+  bool get _canUseAigorPushToTalk {
+    return _isAiTriageCall &&
+        !_operatorAccepted &&
+        !_handoffRequested &&
+        !_hasSubmittedAiReport &&
+        !_isSubmittingAiReport &&
+        !_controller.isEnding;
+  }
+
   String get _currentPeerDisplayName {
     if (_isAiTriageCall && !_operatorAccepted) return 'AIGOR';
     return _humanOperatorDisplayName(
@@ -346,7 +362,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
         await _speech.stop();
       } catch (_) {}
       _isAiSpeaking = true;
-      if (allowInterrupt) {
+      if (allowInterrupt && !_usesPushToTalkForAiTriage) {
         await _startBargeInListening(text);
       }
       final playedNeuralVoice = await _playAigorNeuralVoice(text);
@@ -357,9 +373,9 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       }
     } finally {
       _isAiSpeaking = false;
-      _ignoreSpeechUntil = DateTime.now().add(
-        const Duration(milliseconds: 900),
-      );
+      _ignoreSpeechUntil = _isPushToTalkRecording
+          ? null
+          : DateTime.now().add(const Duration(milliseconds: 900));
       await _endBargeInWindow();
     }
     return _speechInterruptedByCaller;
@@ -647,6 +663,17 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       _startCallStreamAiListening();
       return;
     }
+    if (_usesPushToTalkForAiTriage) {
+      _hasStartedAiListening = false;
+      _silenceNudgeTimer?.cancel();
+      if (_canUseAigorPushToTalk) {
+        _setAiStatus(
+          'Hold the AIGOR mic button while speaking. Release when done.',
+        );
+        _armSilenceNudge();
+      }
+      return;
+    }
     if (_hasStartedAiListening ||
         _hasSubmittedAiReport ||
         _isSubmittingAiReport ||
@@ -801,6 +828,20 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       _silenceNudgeTimer?.cancel();
       setState(() => _aiStatusMessage = 'Narinig ni AIGOR: $words');
     }
+    if (_isPushToTalkRecording) {
+      if (_isLikelyCallerSpeech(
+        words,
+        confidence: result.confidence,
+        forInterrupt: false,
+      )) {
+        _callerReportDraft = words;
+        _pushToTalkDraft = words;
+        if (mounted) {
+          setState(() => _aiStatusMessage = 'Recording: $words');
+        }
+      }
+      return;
+    }
     if (_bargeInActive && _isAiSpeaking) {
       if (!_isLikelyCallerSpeech(
         words,
@@ -847,6 +888,9 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     if (mounted) {
       setState(() => _aiStatusMessage = _speechStatusMessage(status));
     }
+    if (_usesPushToTalkForAiTriage && !_bargeInActive) {
+      return;
+    }
     if (status == 'notListening' || status == 'done') {
       _silenceNudgeTimer?.cancel();
       if (_bargeInActive && _isAiSpeaking) {
@@ -892,6 +936,21 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     );
     _setAiStatus('Speech error: ${error.errorMsg}');
     _silenceNudgeTimer?.cancel();
+    if (_usesPushToTalkForAiTriage && !_bargeInActive) {
+      if (_isPushToTalkRecording) {
+        _isPushToTalkRecording = false;
+        _hasStartedAiListening = false;
+      }
+      _setAiStatus(
+        'Hindi malinaw ang nakuha. Hold the AIGOR mic and speak close to the phone.',
+      );
+      if (_pendingAiReportTranscript.trim().isEmpty) {
+        _armSilenceNudge();
+      } else {
+        _armFollowUpFallback();
+      }
+      return;
+    }
     if (_bargeInActive && _isAiSpeaking) {
       return;
     }
@@ -955,6 +1014,19 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
   }
 
   String _speechStatusMessage(String status) {
+    if (_usesPushToTalkForAiTriage && !_bargeInActive) {
+      switch (status) {
+        case 'listening':
+          return 'Recording. Keep holding while speaking.';
+        case 'notListening':
+        case 'done':
+          return _callerReportDraft.trim().isEmpty
+              ? 'Release received. No clear words yet.'
+              : 'Release received. AIGOR is checking your message.';
+        default:
+          return 'Hold the AIGOR mic button while speaking.';
+      }
+    }
     switch (status) {
       case 'listening':
         return 'Listening now. Please say the emergency clearly.';
@@ -1066,13 +1138,34 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     ]);
   }
 
-  Future<void> _handleCallerTranscript(String transcript) async {
+  bool _isCurrentCallerTurn(int turnId) {
+    return turnId == _latestTranscriptTurnId &&
+        !_controller.isEnding &&
+        !_hasSubmittedAiReport &&
+        !_isSubmittingAiReport;
+  }
+
+  Future<void> _handleCallerTranscript(String transcript, {int? turnId}) async {
     final cleaned = transcript.trim();
+    final currentTurnId = turnId ?? ++_callerTurnId;
+    if (turnId == null) {
+      _latestTranscriptTurnId = currentTurnId;
+      _latestCallerTranscript = cleaned;
+    }
     if (cleaned.isEmpty ||
         _hasSubmittedAiReport ||
         _isSubmittingAiReport ||
-        _isHandlingCallerTranscript ||
         _controller.isEnding) {
+      return;
+    }
+    if (currentTurnId != _latestTranscriptTurnId) return;
+    if (_isHandlingCallerTranscript) {
+      if (mounted) {
+        setState(
+          () =>
+              _aiStatusMessage = 'AIGOR is switching to your latest message...',
+        );
+      }
       return;
     }
 
@@ -1089,6 +1182,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       ].where((part) => part.isNotEmpty).join(' ');
       unawaited(_syncAiTranscriptChunk(cleaned));
 
+      if (!_isCurrentCallerTurn(currentTurnId)) return;
       if (_shouldSubmitImmediately(combinedTranscript)) {
         _followUpFallbackTimer?.cancel();
         _pendingAiReportTranscript = combinedTranscript;
@@ -1111,10 +1205,12 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
         cleaned,
         history: previousTranscript,
       );
+      if (!_isCurrentCallerTurn(currentTurnId)) return;
       final readyToSubmit = aiReply['ready_to_submit'] == true;
       final mergedTranscript =
           aiReply['merged_transcript']?.toString().trim() ?? combinedTranscript;
       if (readyToSubmit && _shouldSubmitImmediately(mergedTranscript)) {
+        if (!_isCurrentCallerTurn(currentTurnId)) return;
         await _submitAiReport(
           mergedTranscript.isNotEmpty ? mergedTranscript : combinedTranscript,
         );
@@ -1124,7 +1220,9 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
           aiReply['caller_reply']?.toString().trim().isNotEmpty == true
           ? aiReply['caller_reply'].toString().trim()
           : _buildAigorFollowUp(combinedTranscript);
+      if (!_isCurrentCallerTurn(currentTurnId)) return;
       await _speakText(followUp, allowInterrupt: true);
+      if (!_isCurrentCallerTurn(currentTurnId)) return;
       if (!_controller.isEnding &&
           !_hasSubmittedAiReport &&
           !_isSubmittingAiReport) {
@@ -1134,6 +1232,136 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       }
     } finally {
       _isHandlingCallerTranscript = false;
+      final latestTranscript = _latestCallerTranscript.trim();
+      if (_latestTranscriptTurnId > currentTurnId &&
+          latestTranscript.isNotEmpty &&
+          !_controller.isEnding &&
+          !_hasSubmittedAiReport &&
+          !_isSubmittingAiReport) {
+        unawaited(
+          _handleCallerTranscript(
+            latestTranscript,
+            turnId: _latestTranscriptTurnId,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _startPushToTalkRecording() async {
+    if (!_canUseAigorPushToTalk || _isPushToTalkRecording) return;
+
+    _silenceNudgeTimer?.cancel();
+    _followUpFallbackTimer?.cancel();
+    _bargeInTimer?.cancel();
+    _bargeInActive = false;
+    _bargeInPrompt = null;
+    _speechInterruptedByCaller = true;
+    _ignoreSpeechUntil = null;
+    _callerTurnId += 1;
+    _latestTranscriptTurnId = _callerTurnId;
+    _latestCallerTranscript = '';
+    unawaited(_stopAiSpeech());
+    _callerReportDraft = '';
+    _pushToTalkDraft = '';
+    _isPushToTalkRecording = true;
+    _hasStartedAiListening = true;
+    _aiListenAttempt += 1;
+    _listenStartedAt = DateTime.now();
+
+    if (mounted) {
+      setState(
+        () => _aiStatusMessage =
+            'Recording. Hold steady and speak close to the phone.',
+      );
+    }
+
+    try {
+      final hasMicPermission = await _ensureMicrophonePermission();
+      if (!hasMicPermission) {
+        throw StateError('Microphone permission was not granted.');
+      }
+      await _prepareSpeechRecognizerForCaller();
+      final available = await _speech.initialize(
+        onStatus: _handleSpeechStatus,
+        onError: _handleSpeechError,
+        debugLogging: _speechDiagnosticsEnabled,
+        finalTimeout: const Duration(seconds: 2),
+      );
+      if (!available) {
+        throw StateError('Speech recognition is not available on this device.');
+      }
+      _preferredSpeechLocaleId ??= await _pickSpeechLocaleId();
+      await _speech.listen(
+        onResult: _handleSpeechResult,
+        onSoundLevelChange: _handleSpeechSoundLevel,
+        listenOptions: SpeechListenOptions(
+          listenFor: const Duration(seconds: 45),
+          pauseFor: const Duration(seconds: 8),
+          localeId: _preferredSpeechLocaleId,
+          partialResults: true,
+          cancelOnError: false,
+          listenMode: ListenMode.dictation,
+        ),
+      );
+    } catch (error) {
+      debugPrint('[SOS AI Voice] Push-to-talk failed: $error');
+      _isPushToTalkRecording = false;
+      _hasStartedAiListening = false;
+      _setAiStatus(
+        'AIGOR could not open the microphone. Please try holding the mic again.',
+      );
+    }
+  }
+
+  Future<void> _finishPushToTalkRecording() async {
+    if (!_isPushToTalkRecording) return;
+
+    _isPushToTalkRecording = false;
+    _hasStartedAiListening = false;
+    if (mounted) {
+      setState(() => _aiStatusMessage = 'Checking your message...');
+    }
+
+    try {
+      await _speech.stop();
+    } catch (_) {}
+    await Future.delayed(const Duration(milliseconds: 180));
+
+    final draft =
+        (_pushToTalkDraft.trim().isNotEmpty
+                ? _pushToTalkDraft
+                : _callerReportDraft)
+            .trim();
+    _pushToTalkDraft = '';
+
+    if (_isLikelyCallerSpeech(draft, forInterrupt: false)) {
+      final turnId = _latestTranscriptTurnId;
+      _latestCallerTranscript = draft;
+      if (_isHandlingCallerTranscript) {
+        unawaited(_syncAiTranscriptChunk(draft));
+        if (mounted) {
+          setState(
+            () => _aiStatusMessage =
+                'AIGOR heard your latest message and is switching to it now.',
+          );
+        }
+        return;
+      }
+      unawaited(_handleCallerTranscript(draft, turnId: turnId));
+      return;
+    }
+
+    if (mounted && _canUseAigorPushToTalk) {
+      setState(
+        () => _aiStatusMessage =
+            'Hindi pa malinaw ang nakuha. Hold the AIGOR mic and speak close to the phone.',
+      );
+    }
+    if (_pendingAiReportTranscript.trim().isEmpty) {
+      _armSilenceNudge();
+    } else {
+      _armFollowUpFallback();
     }
   }
 
@@ -1220,10 +1448,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       }
       _hasStartedAiListening = false;
       unawaited(
-        _speakText(
-          _pickVoiceLine(_noSpeechPromptOptions),
-          allowInterrupt: true,
-        ).then((_) {
+        _speakCurrentTranscriptFollowUp(pending).then((_) {
           if (!_controller.isEnding &&
               !_hasSubmittedAiReport &&
               !_isSubmittingAiReport) {
@@ -1232,6 +1457,33 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
         }),
       );
     });
+  }
+
+  Future<void> _speakCurrentTranscriptFollowUp(String pendingTranscript) async {
+    final currentTranscript = pendingTranscript.trim();
+    if (currentTranscript.isEmpty ||
+        _controller.isEnding ||
+        _hasSubmittedAiReport ||
+        _isSubmittingAiReport) {
+      return;
+    }
+
+    final aiReply = await _requestAigorFollowUp(currentTranscript);
+    final mergedTranscript =
+        aiReply['merged_transcript']?.toString().trim() ?? currentTranscript;
+    if (aiReply['ready_to_submit'] == true &&
+        _shouldSubmitImmediately(mergedTranscript)) {
+      await _submitAiReport(
+        mergedTranscript.isNotEmpty ? mergedTranscript : currentTranscript,
+      );
+      return;
+    }
+
+    final followUp =
+        aiReply['caller_reply']?.toString().trim().isNotEmpty == true
+        ? aiReply['caller_reply'].toString().trim()
+        : _buildAigorFollowUp(currentTranscript);
+    await _speakText(followUp, allowInterrupt: true);
   }
 
   String _buildAigorFollowUp(String transcript) {
@@ -1305,6 +1557,14 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
   bool _shouldSubmitImmediately(String transcript) {
     final text = transcript.toLowerCase();
     if (!_hasEnoughEmergencyDetailForSubmit(text)) return false;
+    final normalized = _normalizeSpeechText(text);
+    final tokens = normalized
+        .split(' ')
+        .where((token) => token.trim().length > 1)
+        .toList();
+    if (tokens.length >= 8 && !_looksLikeOnlyGreetingOrHelp(normalized)) {
+      return true;
+    }
     return _containsAny(text, [
       'sunog',
       'fire',
@@ -1328,12 +1588,77 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       'armas',
       'saksak',
       'kidnap',
+      'nawawala',
+      'missing',
       'robbery',
       'holdap',
+      'nakawan',
+      'snatching',
       'suntukan',
       'away',
       'gulo',
+      'riot',
+      'violence',
+      'domestic',
+      'threat',
+      'self harm',
+      'suicide',
+      'aggressive',
+      'rescue',
+      'trapped',
+      'stranded',
+      'drowning',
+      'nalulunod',
+      'gas leak',
+      'chemical',
+      'toxic',
+      'hazmat',
+      'kuryente',
+      'brownout',
+      'live wire',
+      'water leak',
+      'poste',
+      'pothole',
+      'harang',
+      'obstruction',
+      'aso',
+      'dog bite',
+      'animal',
+      'rabies',
+      'basura',
+      'garbage',
+      'kanal',
+      'landslide',
+      'bagyo',
+      'typhoon',
+      'storm surge',
+      'tsunami',
+      'ashfall',
+      'collapse',
     ]);
+  }
+
+  bool _looksLikeOnlyGreetingOrHelp(String text) {
+    final tokens = text
+        .split(' ')
+        .where((token) => token.trim().isNotEmpty)
+        .toList();
+    if (tokens.length > 4) return false;
+    const vagueWords = {
+      'hello',
+      'hi',
+      'hey',
+      'aigor',
+      'help',
+      'tulong',
+      'saklolo',
+      'emergency',
+      'urgent',
+      'po',
+      'please',
+      'pls',
+    };
+    return tokens.isNotEmpty && tokens.every(vagueWords.contains);
   }
 
   bool _hasEnoughEmergencyDetailForSubmit(String transcript) {
@@ -1780,6 +2105,23 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
                   compact: true,
                 ),
               ),
+            if (_isAiTriageCall &&
+                !_operatorAccepted &&
+                !_handoffRequested &&
+                !_hasSubmittedAiReport)
+              Positioned(
+                left: 20,
+                right: 20,
+                bottom: 114,
+                child: Center(
+                  child: _AigorPushToTalkButton(
+                    enabled: _canUseAigorPushToTalk || _isPushToTalkRecording,
+                    isRecording: _isPushToTalkRecording,
+                    onStart: _startPushToTalkRecording,
+                    onStop: _finishPushToTalkRecording,
+                  ),
+                ),
+              ),
             Positioned(
               left: 0,
               right: 0,
@@ -1844,6 +2186,86 @@ String _deriveAiSessionId(String callId) {
       .replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_')
       .replaceAll(RegExp(r'^_+|_+$'), '');
   return 'ai_${cleaned.isEmpty ? 'unknown' : cleaned}';
+}
+
+class _AigorPushToTalkButton extends StatelessWidget {
+  final bool enabled;
+  final bool isRecording;
+  final Future<void> Function() onStart;
+  final Future<void> Function() onStop;
+
+  const _AigorPushToTalkButton({
+    required this.enabled,
+    required this.isRecording,
+    required this.onStart,
+    required this.onStop,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final active = isRecording;
+    final mainColor = active
+        ? const Color(0xFFFF3B4F)
+        : const Color(0xFF00D4FF);
+    final fillColor = active
+        ? const Color(0xFF34111B)
+        : const Color(0xFF06243A);
+
+    return Opacity(
+      opacity: enabled || active ? 1 : 0.58,
+      child: Listener(
+        onPointerDown: (_) {
+          if (enabled) unawaited(onStart());
+        },
+        onPointerUp: (_) {
+          if (enabled || active) unawaited(onStop());
+        },
+        onPointerCancel: (_) {
+          if (enabled || active) unawaited(onStop());
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: 236,
+          height: 58,
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          decoration: BoxDecoration(
+            color: fillColor.withValues(alpha: active ? 0.96 : 0.9),
+            borderRadius: BorderRadius.circular(29),
+            border: Border.all(color: mainColor.withValues(alpha: 0.85)),
+            boxShadow: [
+              BoxShadow(
+                color: mainColor.withValues(alpha: active ? 0.34 : 0.18),
+                blurRadius: active ? 24 : 16,
+                spreadRadius: active ? 2 : 0,
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(active ? Icons.mic : Icons.mic_none, color: mainColor),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  active ? 'Recording...' : 'Hold to talk to AIGOR',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: active ? Colors.white : const Color(0xFFE7F8FF),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _ZegoVideoSurface extends StatelessWidget {
