@@ -19,6 +19,8 @@ class SignalingService with WidgetsBindingObserver {
   void Function(Map<String, dynamic>)? onCaseUpdated;
   String? _activeAcceptedCallId;
   Map<String, dynamic>? _activeAcceptedCallPayload;
+  String? _pendingIncomingCallRoom;
+  BuildContext? _pendingIncomingCallDialogContext;
   bool _callScreenVisible = false;
   bool _lifecycleObserverAttached = false;
 
@@ -38,8 +40,11 @@ class SignalingService with WidgetsBindingObserver {
     final reason = payload['reason']?.toString();
     final endedBy =
         payload['ended_by']?.toString() ?? payload['endedBy']?.toString();
-    if (reason == 'c3_busy' || endedBy == 'c3') {
+    if (reason == 'c3_busy') {
       return _defaultC3BusyMessage;
+    }
+    if (endedBy == 'c3') {
+      return 'Call ended by the command center.';
     }
     return 'Call ended.';
   }
@@ -74,14 +79,69 @@ class SignalingService with WidgetsBindingObserver {
     }
   }
 
-  bool _isPayloadForCurrentReporter(Map<String, dynamic> payload) {
+  bool _payloadMatchesActiveCall(Map<String, dynamic> payload) {
+    final room =
+        payload['room_name']?.toString() ??
+        payload['roomName']?.toString() ??
+        payload['room']?.toString() ??
+        payload['callId']?.toString() ??
+        payload['call_id']?.toString() ??
+        payload['id']?.toString();
+    if (room == null || room.isEmpty) return false;
+    return _callAliasesFor(_activeAcceptedCallId).any(
+          _callAliasesFor(room).contains,
+        ) ||
+        _callAliasesFor(
+          _activeAcceptedCallPayload?['callId']?.toString() ??
+              _activeAcceptedCallPayload?['call_id']?.toString(),
+        ).any(_callAliasesFor(room).contains);
+  }
+
+  bool _payloadMatchesPendingIncomingCall(Map<String, dynamic> payload) {
+    final pendingRoom = _pendingIncomingCallRoom;
+    if (pendingRoom == null || pendingRoom.isEmpty) return false;
+    final room =
+        payload['room_name']?.toString() ??
+        payload['roomName']?.toString() ??
+        payload['room']?.toString() ??
+        payload['callId']?.toString() ??
+        payload['call_id']?.toString() ??
+        payload['id']?.toString();
+    if (room == null || room.isEmpty) return false;
+    return _callAliasesFor(pendingRoom).any(_callAliasesFor(room).contains);
+  }
+
+  void _dismissPendingIncomingCallIfMatches(Map<String, dynamic> payload) {
+    if (!_payloadMatchesPendingIncomingCall(payload)) return;
+    final dialogContext = _pendingIncomingCallDialogContext;
+    _pendingIncomingCallRoom = null;
+    _pendingIncomingCallDialogContext = null;
+    if (dialogContext != null) {
+      try {
+        Navigator.of(dialogContext, rootNavigator: true).pop(false);
+      } catch (_) {}
+    }
+  }
+
+  bool _isPayloadForCurrentReporter(
+    Map<String, dynamic> payload, {
+    bool allowMissingReporter = true,
+    bool allowActiveCallMatch = true,
+  }) {
     final reporterId =
         payload['reporter_id']?.toString() ??
         payload['reporterId']?.toString() ??
         payload['target_user_id']?.toString() ??
         payload['targetUserId']?.toString() ??
         payload['userId']?.toString();
-    return reporterId == null || _userId == null || reporterId == _userId;
+    if (reporterId != null && _userId != null && reporterId != _userId) {
+      return false;
+    }
+    if (reporterId != null || _userId == null) return true;
+    if (allowActiveCallMatch && _payloadMatchesActiveCall(payload)) {
+      return true;
+    }
+    return allowMissingReporter;
   }
 
   Set<String> _callAliasesFor(String? room) {
@@ -116,6 +176,7 @@ class SignalingService with WidgetsBindingObserver {
     socket!.off('sos_dismissed');
     socket!.off('end-call');
     socket!.off('call_ended');
+    socket!.off('incoming_call');
     socket!.off('case_updated');
 
     socket!.on('case_updated', (data) {
@@ -124,6 +185,20 @@ class SignalingService with WidgetsBindingObserver {
           ? Map<String, dynamic>.from(data)
           : <String, dynamic>{};
       onCaseUpdated?.call(payload);
+    });
+
+    socket!.on('incoming_call', (data) {
+      final payload = data is Map
+          ? Map<String, dynamic>.from(data)
+          : <String, dynamic>{};
+      if (!_isPayloadForCurrentReporter(
+        payload,
+        allowMissingReporter: false,
+        allowActiveCallMatch: false,
+      )) {
+        return;
+      }
+      _handleIncomingCommandCenterCall(payload);
     });
 
     void openAcceptedCall(dynamic data, {bool requireReporterMatch = false}) {
@@ -139,6 +214,12 @@ class SignalingService with WidgetsBindingObserver {
           debugPrint('[Signaling] Ignoring SOS ack for reporter: $reporterId');
           return;
         }
+      } else if (!_isPayloadForCurrentReporter(
+        payload,
+        allowMissingReporter: false,
+      )) {
+        debugPrint('[Signaling] Ignoring accepted call for another room.');
+        return;
       }
 
       debugPrint('[Signaling] CALL ACCEPTED RECEIVED');
@@ -176,10 +257,16 @@ class SignalingService with WidgetsBindingObserver {
       final payload = data is Map
           ? Map<String, dynamic>.from(data)
           : <String, dynamic>{};
-      if (!_isPayloadForCurrentReporter(payload)) return;
+      if (!_isPayloadForCurrentReporter(
+        payload,
+        allowMissingReporter: false,
+      )) {
+        return;
+      }
       final message = _extractDeclineMessage(payload);
       final enriched = <String, dynamic>{...payload, 'message': message};
       _markPayloadCallEnded(payload);
+      _dismissPendingIncomingCallIfMatches(payload);
       debugPrint('[Signaling] SOS call ended: $enriched');
       onCallEnded?.call(enriched);
       _showDismissMessage(message);
@@ -208,10 +295,16 @@ class SignalingService with WidgetsBindingObserver {
       final payload = data is Map
           ? Map<String, dynamic>.from(data)
           : <String, dynamic>{};
-      if (!_isPayloadForCurrentReporter(payload)) return;
+      if (!_isPayloadForCurrentReporter(
+        payload,
+        allowMissingReporter: false,
+      )) {
+        return;
+      }
       final message = _extractDeclineMessage(payload);
       final enriched = <String, dynamic>{...payload, 'message': message};
       _markPayloadCallEnded(payload);
+      _dismissPendingIncomingCallIfMatches(payload);
       debugPrint('[Signaling] SOS dismissed by C3: $enriched');
       onCallDeclined?.call(enriched);
       onCallEnded?.call(enriched);
@@ -370,6 +463,113 @@ class SignalingService with WidgetsBindingObserver {
       return;
     }
     _openCallScreenFromPayload(payload, force: true);
+  }
+
+  Future<void> _handleIncomingCommandCenterCall(
+    Map<String, dynamic> payload,
+  ) async {
+    final context = rootNavigatorKey.currentContext;
+    if (context == null) {
+      debugPrint('[Signaling] No context for incoming C3 call; opening directly.');
+      _openCallScreenFromPayload(payload);
+      return;
+    }
+
+    final callId =
+        payload['callId']?.toString() ??
+        payload['call_id']?.toString() ??
+        payload['room']?.toString() ??
+        'incoming';
+    final room =
+        payload['room_name']?.toString() ??
+        payload['roomName']?.toString() ??
+        payload['room']?.toString() ??
+        (callId.startsWith('call_') || callId.startsWith('sos_')
+            ? callId
+            : 'call_$callId');
+    if (_callAliasesFor(_activeAcceptedCallId).contains(room) &&
+        _callScreenVisible) {
+      debugPrint('[Signaling] Incoming C3 call ignored; screen already open.');
+      return;
+    }
+
+    final operatorName =
+        payload['operatorName']?.toString() ??
+        payload['operator_name']?.toString() ??
+        'C3 Command Center';
+
+    _pendingIncomingCallRoom = room;
+    final accepted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        _pendingIncomingCallDialogContext = dialogContext;
+        return AlertDialog(
+          backgroundColor: const Color(0xFF0F172A),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text(
+            'Incoming C3 Call',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          content: Text(
+            '$operatorName is calling about your emergency report.',
+            style: const TextStyle(color: Color(0xFFCBD5E1)),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text(
+                'Decline',
+                style: TextStyle(color: Color(0xFFF87171)),
+              ),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              icon: const Icon(Icons.video_call),
+              label: const Text('Answer'),
+            ),
+          ],
+        );
+      },
+    );
+    _pendingIncomingCallRoom = null;
+    _pendingIncomingCallDialogContext = null;
+
+    if (accepted == true) {
+      socket?.emit('call_accepted', {
+        ...payload,
+        'room': room,
+        'room_name': room,
+        'roomName': room,
+        'call_id': callId,
+        'callId': callId,
+        if (_userId != null) 'reporter_id': _userId,
+      });
+      _openCallScreenFromPayload({
+        ...payload,
+        'room': room,
+        'room_name': room,
+        'roomName': room,
+        'call_id': callId,
+        'callId': callId,
+        'operatorName': operatorName,
+      });
+      return;
+    }
+
+    socket?.emit('end-call', {
+      ...payload,
+      'room': room,
+      'call_id': callId,
+      'callId': callId,
+      'ended_by': 'reporter',
+      if (_userId != null) 'reporter_id': _userId,
+    });
   }
 
   void _openCallScreenFromPayload(

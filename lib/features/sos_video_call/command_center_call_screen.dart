@@ -40,20 +40,21 @@ class CommandCenterCallScreen extends StatefulWidget {
 }
 
 class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   static const List<String> _aiGreetingOptions = [
     'AIGOR ito from the command center. Nandito ako. Ano ang emergency?',
     'This is AIGOR from the command center. I am listening. What is happening right now?',
-    'AIGOR from the command center ito. Stay with me. Ano ang kailangan mong tulong?',
+    'AIGOR from the command center ito. Nandito ako. Ano ang kailangan mong tulong?',
   ];
   static const List<String> _noSpeechPromptOptions = [
     'Nandito pa ako. Hindi pa malinaw ang dating ng boses mo. Subukan ulit, kahit maikli lang.',
     'I am still listening. Sabihin mo muna kung ano ang emergency sa harap mo ngayon.',
-    'Stay with me. Kung kaya mong magsalita, sabihin mo kung sunog, aksidente, baha, o may nasaktan.',
     'Narito ako. Magsalita ka lang kapag kaya mo, at makikinig ako ulit.',
+    'Hold mo ulit ang AIGOR mic at sabihin ang pinaka-importanteng nangyayari ngayon.',
   ];
 
   final Random _voiceRandom = Random();
+  int _noSpeechPromptCursor = 0;
 
   late final CallController _controller;
   late final String _roomName;
@@ -90,6 +91,13 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
   String _latestCallerTranscript = '';
   String _pendingAiReportTranscript = '';
   String _aiStatusMessage = 'AIGOR is preparing...';
+  String _latestAigorSpeech =
+      "Hello! I'm AIGOR, your AI emergency assistant. I'm here to help you.";
+  Timer? _durationTimer;
+  Duration _elapsed = Duration.zero;
+  bool _isCallOnHold = false;
+  bool _isSpeakerOn = true;
+  late final AnimationController _pulseController;
 
   @override
   void initState() {
@@ -98,6 +106,10 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     _roomName = widget.roomName ?? _roomNameForCall(widget.callId);
     _aiCallerSessionId =
         widget.aiCallerSessionId ?? _deriveAiSessionId(widget.callId);
+    _operatorAccepted = !_isAiTriageCall;
+    if (_operatorAccepted) {
+      _acceptedOperatorName = widget.operatorName;
+    }
     _neuralVoicePlayer = AudioPlayer();
     _speech = SpeechToText();
     _controller = CallController(
@@ -155,6 +167,15 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       _handleAiCallerFailed,
     );
     SignalingService.instance.onCallEnded = _handleGlobalCallEnded;
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+    _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() => _elapsed = _elapsed + const Duration(seconds: 1));
+      }
+    });
     WakelockPlus.enable();
     if (_isAiTriageCall) {
       Future.delayed(const Duration(milliseconds: 180), () {
@@ -165,6 +186,10 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
 
   @override
   void dispose() {
+    if (!_hasRequestedCallEnd && !_controller.isEnding) {
+      _hasRequestedCallEnd = true;
+      SignalingService.instance.endCall(_roomName);
+    }
     WidgetsBinding.instance.removeObserver(this);
     SignalingService.instance.socket?.off('end-call', _handleRemoteEndCall);
     SignalingService.instance.socket?.off('call_ended', _handleRemoteEndCall);
@@ -217,6 +242,8 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     }
     SignalingService.instance.markCallScreenVisible(_roomName, false);
     WakelockPlus.disable();
+    _pulseController.dispose();
+    _durationTimer?.cancel();
     _bargeInTimer?.cancel();
     _followUpFallbackTimer?.cancel();
     _silenceNudgeTimer?.cancel();
@@ -282,10 +309,20 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     final cleaned = name?.trim();
     if (cleaned == null || cleaned.isEmpty) return 'Command Center';
     final lower = cleaned.toLowerCase();
+    final normalized = lower.replaceAll(RegExp(r'[^a-z0-9]'), '');
     if (lower == 'ai' ||
         lower.contains('aigor') ||
         lower.contains('emergency ai') ||
-        lower.contains('ai caller')) {
+        lower.contains('ai caller') ||
+        normalized == 'systemad' ||
+        normalized == 'ystemad' ||
+        normalized == 'systemadmin' ||
+        normalized == 'ystemadmin' ||
+        normalized == 'administrator' ||
+        normalized == 'admin' ||
+        normalized.contains('systemad') ||
+        normalized.contains('ystemad') ||
+        normalized.startsWith('system')) {
       return 'Command Center';
     }
     return cleaned;
@@ -349,6 +386,11 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
 
   Future<bool> _speakText(String text, {bool allowInterrupt = false}) async {
     if (_operatorAccepted) return false;
+    if (mounted) {
+      setState(() {
+        _latestAigorSpeech = text;
+      });
+    }
     try {
       _bargeInTimer?.cancel();
       _silenceNudgeTimer?.cancel();
@@ -384,6 +426,51 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
   String _pickVoiceLine(List<String> options) {
     if (options.isEmpty) return '';
     return options[_voiceRandom.nextInt(options.length)];
+  }
+
+  String _pickNoSpeechPrompt() {
+    final context = [
+      _pendingAiReportTranscript,
+      _callerReportDraft,
+      _latestCallerTranscript,
+    ].where((part) => part.trim().isNotEmpty).join(' ').toLowerCase();
+    final options = <String>[];
+    if (_containsAny(context, [
+      'aksidente',
+      'accident',
+      'bangga',
+      'nagbanggaan',
+      'nagkabanggaan',
+      'nagbungguan',
+      'kotse',
+      'sasakyan',
+      'crash',
+    ])) {
+      options.addAll([
+        'Narinig ko ang aksidente. Hold mo ulit ang mic at sabihin kung may nasaktan, naipit, o nasa kalsada pa.',
+        'May accident report na akong narinig. Sabihin mo kung kailangan ng ambulance o rescue ngayon.',
+      ]);
+    } else if (_containsAny(context, [
+      'sunog',
+      'fire',
+      'apoy',
+      'usok',
+      'smoke',
+    ])) {
+      options.addAll([
+        'Narinig ko ang sunog. Hold mo ulit ang mic at sabihin kung may tao sa loob o may nasaktan.',
+        'May fire report na akong narinig. Sabihin mo kung saan ang apoy o usok at sino ang nanganganib.',
+      ]);
+    } else if (_containsAny(context, ['baha', 'flood', 'lubog'])) {
+      options.addAll([
+        'Narinig ko ang baha. Hold mo ulit ang mic at sabihin kung may stranded o kailangang i-rescue.',
+        'May flood report na akong narinig. Sabihin mo kung gaano kataas ang tubig at sino ang nanganganib.',
+      ]);
+    }
+    options.addAll(_noSpeechPromptOptions);
+    final line = options[_noSpeechPromptCursor % options.length];
+    _noSpeechPromptCursor += 1;
+    return line;
   }
 
   Future<bool> _playAigorNeuralVoice(String text) async {
@@ -633,7 +720,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     if (mounted && !_controller.isEnding) {
       setState(
         () => _aiStatusMessage =
-            'Hindi malinaw ang audio. Ikokonekta ka sa command center.',
+            'Hindi malinaw ang audio. Ipapasa ka namin sa human operator.',
       );
     }
     unawaited(_handoffToOperator());
@@ -765,10 +852,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       _hasStartedAiListening = false;
       unawaited(_speech.stop().catchError((_) {}));
       unawaited(
-        _speakText(
-          _pickVoiceLine(_noSpeechPromptOptions),
-          allowInterrupt: true,
-        ).then((_) {
+        _speakText(_pickNoSpeechPrompt(), allowInterrupt: true).then((_) {
           if (!_controller.isEnding &&
               !_operatorAccepted &&
               !_hasSubmittedAiReport &&
@@ -826,7 +910,10 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     }
     if (words.isNotEmpty && mounted) {
       _silenceNudgeTimer?.cancel();
-      setState(() => _aiStatusMessage = 'Narinig ni AIGOR: $words');
+      setState(() {
+        _latestCallerTranscript = words;
+        _aiStatusMessage = 'Narinig ni AIGOR: $words';
+      });
     }
     if (_isPushToTalkRecording) {
       if (_isLikelyCallerSpeech(
@@ -995,10 +1082,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       unawaited(_startAiReportListening());
       return;
     }
-    await _speakText(
-      _pickVoiceLine(_noSpeechPromptOptions),
-      allowInterrupt: true,
-    );
+    await _speakText(_pickNoSpeechPrompt(), allowInterrupt: true);
     unawaited(_startAiReportListening());
   }
 
@@ -1044,7 +1128,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
   }
 
   String _retryPromptForAttempt() {
-    return _pickVoiceLine(_noSpeechPromptOptions);
+    return _pickNoSpeechPrompt();
   }
 
   bool _isLikelyCallerSpeech(
@@ -1536,16 +1620,23 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       'accident',
       'bangga',
       'nabangga',
+      'nagbanggaan',
+      'nagkabanggaan',
+      'nagbungguan',
+      'bungguan',
+      'salpukan',
+      'kotse',
+      'sasakyan',
       'crash',
       'nadisgrasya',
     ])) {
-      return 'Copy, aksidente ito. Ano ang nangyari, saan banda, at may injured ba o kailangan ng ambulance?';
+      return 'Narinig ko ang aksidente. May nasaktan, naipit, o kailangan ng ambulance ngayon?';
     }
     if (_containsAny(text, ['baha', 'flood', 'lubog', 'ulan'])) {
       return 'Copy, baha ang narinig ko. Pumunta sa mas mataas na lugar kung kaya. Saan banda at may stranded ba o kailangan ng rescue?';
     }
     if (_containsAny(text, ['tulong', 'help', 'saklolo', 'emergency'])) {
-      return 'Nandito ako. Sabihin mo muna ang pinaka-delikasong nangyayari: sunog, aksidente, baha, gulo, o may nasaktan?';
+      return 'Nandito ako. Sabihin mo muna ang pinaka-importanteng nangyayari: sunog, aksidente, baha, gulo, o may nasaktan?';
     }
     return 'Narinig kita. Para maipasa ko nang tama, ano ang emergency at may tao bang nasaktan o nanganganib ngayon?';
   }
@@ -1580,6 +1671,13 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       'aksidente',
       'accident',
       'bangga',
+      'nagbanggaan',
+      'nagkabanggaan',
+      'nagbungguan',
+      'bungguan',
+      'salpukan',
+      'kotse',
+      'sasakyan',
       'medical',
       'ambulance',
       'nasaktan',
@@ -1681,10 +1779,22 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       'may sugat',
       'may dugo',
       'may naipit',
+      'may namatay',
+      'may patay',
       'hindi makahinga',
       'kailangan ambulance',
+      'kailangan rescue',
+      'kailangan ng rescue',
       'need ambulance',
+      'need rescue',
       'malapit sa',
+      'nagbanggaan',
+      'nagkabanggaan',
+      'nagbungguan',
+      'bungguan',
+      'salpukan',
+      'kotse',
+      'sasakyan',
     ]);
   }
 
@@ -1759,7 +1869,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     } catch (error) {
       debugPrint('[SOS AI Voice] Report submit failed: $error');
       await _speakAndHandoff(
-        'Nagkaproblema sa pag-save ng report. Ikokonekta na kita sa command center.',
+        'Nagkaproblema sa pag-save ng report, pero ipapasa pa rin namin kayo sa aming human operator para mas mabilis kayong matulungan. Huwag patayin ang call.',
       );
     } finally {
       _isSubmittingAiReport = false;
@@ -1832,7 +1942,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
         ? ' Priority niya ay $severity.'
         : '';
     final safetyLine = _safetyLineForCategory(category);
-    return 'Okay, na-save ko na: $details.$severityText $safetyLine Ipapasa na kita sa command center. Stay on the line.';
+    return 'Okay, na-save ko na: $details.$severityText $safetyLine Ipapasa na namin kayo sa aming human operator para mas mabilis kayong matulungan. Huwag patayin ang call habang kinokonekta namin kayo.';
   }
 
   String _safetyLineForCategory(String? category) {
@@ -1989,11 +2099,14 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       await _controller.setNativeMicrophoneMuted(false);
       await _controller.resumePublishingAfterAiTriage();
     } catch (error) {
-      debugPrint('[SOS AI Voice] Could not resume ZEGO publishing: $error');
+      debugPrint(
+        '[SOS AI Voice] Could not resume AITELLIGENZ room publishing: $error',
+      );
     }
   }
 
   Future<void> _closeFromRemoteEnd() async {
+    _submitPendingAiReportBeforeClosing();
     if (!_controller.isEnding) {
       _controller.closeWithoutNativeCleanup();
     }
@@ -2015,13 +2128,14 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
   }
 
   void _handleGlobalCallEnded(Map<String, dynamic> data) {
-    if (!_isPayloadForThisCall(data) && _hasExplicitCallIdentity(data)) return;
+    if (!_isPayloadForThisCall(data)) return;
     unawaited(_closeFromRemoteEnd());
   }
 
   Future<void> _endCall() async {
     if (_hasRequestedCallEnd) return;
     _hasRequestedCallEnd = true;
+    _submitPendingAiReportBeforeClosing();
     final shouldNotify = !_controller.isEnding;
     _controller.closeWithoutNativeCleanup();
     _handoffRequested = true;
@@ -2037,6 +2151,13 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     });
   }
 
+  void _submitPendingAiReportBeforeClosing() {
+    if (_hasSubmittedAiReport || _isSubmittingAiReport) return;
+    final transcript = _visibleCallerTranscript.trim();
+    if (!_isLikelyCallerSpeech(transcript, forInterrupt: false)) return;
+    unawaited(_submitAiReport(transcript));
+  }
+
   void _returnHomeAfterCall() {
     if (!mounted) return;
     ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
@@ -2048,10 +2169,1049 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     });
   }
 
+  void _showCallSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: const Color(0xFF00A2FF),
+        ),
+      );
+  }
+
+  Future<void> _setCallHold(bool hold) async {
+    if (_isCallOnHold == hold) return;
+    if (mounted) setState(() => _isCallOnHold = hold);
+    await _controller.setNativeMicrophoneMuted(
+      hold || !_controller.isMicEnabled,
+    );
+    if (!hold) {
+      _showCallSnack('Call resumed.');
+    }
+  }
+
+  Future<void> _toggleMute() async {
+    if (_isCallOnHold && mounted) {
+      setState(() => _isCallOnHold = false);
+    }
+    await _controller.toggleMicrophone();
+    await _controller.setNativeMicrophoneMuted(!_controller.isMicEnabled);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _toggleSpeaker() async {
+    final nextSpeakerState = !_isSpeakerOn;
+    if (mounted) setState(() => _isSpeakerOn = nextSpeakerState);
+    await _controller.setSpeakerEnabled(nextSpeakerState);
+    _showCallSnack(
+      nextSpeakerState ? 'Speaker audio is on.' : 'Speaker audio is off.',
+    );
+  }
+
+  Future<void> _toggleCamera() async {
+    await _controller.toggleCamera();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _shareLocationNow() async {
+    await _controller.shareCurrentLocationNow();
+    _showCallSnack('Live location shared with the command center.');
+  }
+
+  String get _visibleCallerTranscript {
+    return _pushToTalkDraft.trim().isNotEmpty
+        ? _pushToTalkDraft.trim()
+        : _callerReportDraft.trim().isNotEmpty
+        ? _callerReportDraft.trim()
+        : _latestCallerTranscript.trim().isNotEmpty
+        ? _latestCallerTranscript.trim()
+        : _pendingAiReportTranscript.trim();
+  }
+
+  void _showCallInfoSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF041225),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Call Info',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _CallInfoRow(label: 'Call ID', value: widget.callId),
+                _CallInfoRow(label: 'Room', value: _roomName),
+                _CallInfoRow(
+                  label: 'Connected to',
+                  value: _currentPeerDisplayName,
+                ),
+                _CallInfoRow(
+                  label: 'Duration',
+                  value: _formatDuration(_elapsed),
+                ),
+                _CallInfoRow(
+                  label: 'Status',
+                  value: _operatorAccepted
+                      ? 'Connected to command center'
+                      : _aiStatusMessage,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showTextMessageSheet() async {
+    final messageController = TextEditingController();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF041225),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              18,
+              20,
+              20 + MediaQuery.of(sheetContext).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Message AIGOR',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: messageController,
+                  autofocus: true,
+                  minLines: 3,
+                  maxLines: 5,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: 'Type what happened...',
+                    hintStyle: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.45),
+                    ),
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.06),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.1),
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.1),
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFF00A2FF)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      final text = messageController.text.trim();
+                      if (text.isEmpty) return;
+                      Navigator.of(sheetContext).pop();
+                      unawaited(_handleCallerTranscript(text));
+                      _showCallSnack('Message sent to AIGOR.');
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00A2FF),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    icon: const Icon(Icons.send),
+                    label: const Text('Send to AIGOR'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    messageController.dispose();
+  }
+
+  String _formatDuration(Duration d) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final m = twoDigits(d.inMinutes.remainder(60));
+    final s = twoDigits(d.inSeconds.remainder(60));
+    return d.inHours > 0 ? '${twoDigits(d.inHours)}:$m:$s' : '$m:$s';
+  }
+
+  Widget _buildControlItem({
+    required IconData icon,
+    required String label,
+    required bool active,
+    VoidCallback? onTap,
+    VoidCallback? onPressStart,
+    VoidCallback? onPressEnd,
+    bool isEndCall = false,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: onTap,
+          onTapDown: onPressStart == null ? null : (_) => onPressStart(),
+          onTapUp: onPressEnd == null ? null : (_) => onPressEnd(),
+          onTapCancel: onPressEnd,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: isEndCall ? 68 : 56,
+            height: isEndCall ? 68 : 56,
+            decoration: BoxDecoration(
+              color: isEndCall
+                  ? const Color(0xFFFF2D55)
+                  : active
+                  ? const Color(0xFF00A2FF).withValues(alpha: 0.15)
+                  : Colors.white.withValues(alpha: 0.04),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: isEndCall
+                    ? Colors.transparent
+                    : active
+                    ? const Color(0xFF00A2FF)
+                    : Colors.white.withValues(alpha: 0.1),
+                width: active ? 2.0 : 1.0,
+              ),
+              boxShadow: active
+                  ? [
+                      BoxShadow(
+                        color: const Color(0xFF00A2FF).withValues(alpha: 0.3),
+                        blurRadius: 12,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : isEndCall
+                  ? [
+                      BoxShadow(
+                        color: const Color(0xFFFF2D55).withValues(alpha: 0.3),
+                        blurRadius: 12,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Icon(icon, color: Colors.white, size: isEndCall ? 32 : 24),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.7),
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVerticalDivider() {
+    return Container(
+      height: 40,
+      width: 1,
+      color: Colors.white.withValues(alpha: 0.06),
+    );
+  }
+
+  Widget _buildAigorRedesignScreen(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF020813),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF020813), Color(0xFF051226), Color(0xFF020813)],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // 1. Top Header Bar
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Back Button
+                    GestureDetector(
+                      onTap: _endCall,
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.05),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.1),
+                            width: 1,
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.arrow_back_ios_new,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                    // Center Titles
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'SOS CALL',
+                              style: TextStyle(
+                                color: Color(0xFF00B2FF),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.5,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFF2D55),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'LIVE',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'AIGOR',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'AI Emergency Assistant',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.5),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                    // Call Info Button
+                    GestureDetector(
+                      onTap: _showCallInfoSheet,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.transparent,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Call Info',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.9),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Icon(
+                              Icons.info,
+                              color: Color(0xFF00A2FF),
+                              size: 12,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Scrollable area to handle varying device sizes
+              Expanded(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 16),
+
+                      // 2. Aigor Head & Waveform Graphics
+                      SizedBox(
+                        height: 220,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // Waveform Background
+                            Positioned.fill(
+                              child: AnimatedBuilder(
+                                animation: _pulseController,
+                                builder: (context, child) {
+                                  return CustomPaint(
+                                    painter: WaveformPainter(
+                                      animationValue: _pulseController.value,
+                                      isSpeaking: _isAiSpeaking,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            // Concentric circles with Aigor Head
+                            Container(
+                              width: 190,
+                              height: 190,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: const Color(
+                                    0xFF00B2FF,
+                                  ).withValues(alpha: 0.2),
+                                  width: 1.5,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(
+                                      0xFF00B2FF,
+                                    ).withValues(alpha: 0.08),
+                                    blurRadius: 30,
+                                    spreadRadius: 5,
+                                  ),
+                                ],
+                              ),
+                              alignment: Alignment.center,
+                              child: Container(
+                                width: 174,
+                                height: 174,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: const Color(
+                                      0xFF00B2FF,
+                                    ).withValues(alpha: 0.4),
+                                    width: 2.0,
+                                  ),
+                                ),
+                                alignment: Alignment.center,
+                                child: Container(
+                                  width: 156,
+                                  height: 156,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(
+                                          0xFF00B2FF,
+                                        ).withValues(alpha: 0.2),
+                                        blurRadius: 15,
+                                        spreadRadius: 2,
+                                      ),
+                                    ],
+                                  ),
+                                  child: ClipOval(
+                                    child: Image.asset(
+                                      'assets/images/aigor_avatar.png',
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // 3. Status Pill
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF04152A).withValues(alpha: 0.8),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: const Color(
+                              0xFF00A2FF,
+                            ).withValues(alpha: 0.3),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _isAiSpeaking
+                                  ? Icons.volume_up
+                                  : Icons.graphic_eq,
+                              color: const Color(0xFF00A2FF),
+                              size: 16,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              _isAiSpeaking
+                                  ? 'AIGOR IS SPEAKING...'
+                                  : _isPushToTalkRecording
+                                  ? 'AIGOR IS LISTENING...'
+                                  : 'AIGOR IS READY...',
+                              style: const TextStyle(
+                                color: Color(0xFF00A2FF),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.0,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            // Blinking dot
+                            AnimatedBuilder(
+                              animation: _pulseController,
+                              builder: (context, child) {
+                                return Opacity(
+                                  opacity: _pulseController.value,
+                                  child: Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFF00A2FF),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // 4. Message Bubble
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        margin: const EdgeInsets.symmetric(horizontal: 20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF041225).withValues(alpha: 0.7),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: const Color(
+                              0xFF0055FF,
+                            ).withValues(alpha: 0.15),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: const Color(
+                                    0xFF00A2FF,
+                                  ).withValues(alpha: 0.5),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: ClipOval(
+                                child: Image.asset(
+                                  'assets/images/aigor_avatar.png',
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    _latestAigorSpeech,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                  if (_latestAigorSpeech.toLowerCase().contains(
+                                        'emergency',
+                                      ) ||
+                                      _latestAigorSpeech.toLowerCase().contains(
+                                        'help',
+                                      ) ||
+                                      _latestAigorSpeech.contains('AIGOR')) ...[
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'How can I assist you today?',
+                                      style: TextStyle(
+                                        color: Color(0xFF00A2FF),
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      if (_visibleCallerTranscript.isNotEmpty) ...[
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          margin: const EdgeInsets.symmetric(horizontal: 20),
+                          decoration: BoxDecoration(
+                            color: const Color(
+                              0xFF061A2F,
+                            ).withValues(alpha: 0.72),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: const Color(
+                                0xFF00A2FF,
+                              ).withValues(alpha: 0.18),
+                              width: 1.2,
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.record_voice_over,
+                                color: Color(0xFF00A2FF),
+                                size: 18,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      _isPushToTalkRecording
+                                          ? 'LIVE TRANSCRIPTION'
+                                          : 'YOUR LAST MESSAGE',
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.48,
+                                        ),
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 1.0,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      _visibleCallerTranscript,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        height: 1.35,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                      ],
+
+                      // 5. Quick Actions
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 16,
+                          horizontal: 12,
+                        ),
+                        margin: const EdgeInsets.symmetric(horizontal: 20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF041225).withValues(alpha: 0.8),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.04),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            _AigorActionItem(
+                              icon: Icons.location_on,
+                              label: 'Share Location',
+                              onTap: () => unawaited(_shareLocationNow()),
+                            ),
+                            _buildVerticalDivider(),
+                            _AigorActionItem(
+                              icon: Icons.message,
+                              label: 'Message AIGOR',
+                              onTap: () => unawaited(_showTextMessageSheet()),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // 6. Recording progress card
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        margin: const EdgeInsets.symmetric(horizontal: 20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1B0709).withValues(alpha: 0.8),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: const Color(0xFF4C1014),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFF2D55),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  AnimatedBuilder(
+                                    animation: _pulseController,
+                                    builder: (context, child) {
+                                      return Opacity(
+                                        opacity: _pulseController.value,
+                                        child: Container(
+                                          width: 6,
+                                          height: 6,
+                                          decoration: const BoxDecoration(
+                                            color: Colors.white,
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Text(
+                                    'REC',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text(
+                                    'RECORDING IN PROGRESS',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Your call is being recorded for your safety.',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.5,
+                                      ),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: List.generate(8, (index) {
+                                    final height =
+                                        4.0 +
+                                        8.0 *
+                                            (sin(
+                                              index +
+                                                  _pulseController.value *
+                                                      2 *
+                                                      pi,
+                                            ).abs());
+                                    return Container(
+                                      margin: const EdgeInsets.symmetric(
+                                        horizontal: 1.5,
+                                      ),
+                                      width: 2,
+                                      height: height,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFF2D55),
+                                        borderRadius: BorderRadius.circular(1),
+                                      ),
+                                    );
+                                  }),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _formatDuration(_elapsed),
+                                  style: const TextStyle(
+                                    color: Color(0xFFFF2D55),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w900,
+                                    fontFamily: 'monospace',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // 7. Push-To-Talk Button
+                      if (_canUseAigorPushToTalk || _isPushToTalkRecording)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Center(
+                            child: _AigorPushToTalkButton(
+                              enabled:
+                                  _canUseAigorPushToTalk ||
+                                  _isPushToTalkRecording,
+                              isRecording: _isPushToTalkRecording,
+                              onStart: _startPushToTalkRecording,
+                              onStop: _finishPushToTalkRecording,
+                            ),
+                          ),
+                        ),
+
+                      const SizedBox(height: 20),
+
+                      // 8. Call controls
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 16,
+                          horizontal: 16,
+                        ),
+                        margin: const EdgeInsets.symmetric(horizontal: 20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF041225).withValues(alpha: 0.8),
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.03),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _buildControlItem(
+                              icon: _isCallOnHold
+                                  ? Icons.play_arrow
+                                  : Icons.pause,
+                              label: 'Hold',
+                              active: _isCallOnHold,
+                              onPressStart: () => unawaited(_setCallHold(true)),
+                              onPressEnd: () => unawaited(_setCallHold(false)),
+                            ),
+                            _buildControlItem(
+                              icon: _controller.isMicEnabled
+                                  ? Icons.mic
+                                  : Icons.mic_off,
+                              label: 'Mute',
+                              active: !_controller.isMicEnabled,
+                              onTap: () => unawaited(_toggleMute()),
+                            ),
+                            _buildControlItem(
+                              icon: Icons.call_end,
+                              label: 'End Call',
+                              active: false,
+                              isEndCall: true,
+                              onTap: _endCall,
+                            ),
+                            _buildControlItem(
+                              icon: _isSpeakerOn
+                                  ? Icons.volume_up
+                                  : Icons.volume_down,
+                              label: 'Speaker',
+                              active: _isSpeakerOn,
+                              onTap: () => unawaited(_toggleSpeaker()),
+                            ),
+                            _buildControlItem(
+                              icon: _controller.isCameraEnabled
+                                  ? Icons.videocam
+                                  : Icons.videocam_off,
+                              label: 'Camera',
+                              active: !_controller.isCameraEnabled,
+                              onTap: () => unawaited(_toggleCamera()),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // 9. Footnote
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        margin: const EdgeInsets.symmetric(horizontal: 20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF041225).withValues(alpha: 0.6),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: const Color(
+                              0xFF00A2FF,
+                            ).withValues(alpha: 0.15),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(
+                              Icons.auto_awesome,
+                              color: Color(0xFF00A2FF),
+                              size: 16,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'AIGOR will pass you to a human operator once the emergency details are ready. Please keep the call open.',
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.7),
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isConnected = _operatorAccepted && _controller.hasRemoteParticipant;
-    final localPreview = isConnected ? _controller.localView : null;
+    if (_isAiTriageCall && !_operatorAccepted) {
+      return _buildAigorRedesignScreen(context);
+    }
+
+    final showOperatorCall = _operatorAccepted;
+    final isConnected =
+        _operatorAccepted &&
+        (!_controller.isConnecting ||
+            _controller.hasRemoteParticipant ||
+            _controller.hasLocalPreview);
+    final localPreview = showOperatorCall ? _controller.localView : null;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -2059,7 +3219,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
         child: Stack(
           children: [
             Positioned.fill(
-              child: !isConnected
+              child: !showOperatorCall
                   ? CallStatus(
                       message:
                           _controller.error ??
@@ -2081,6 +3241,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
                                 : _aiStatusMessage)
                           : _currentPeerDisplayName,
                       compact: false,
+                      showLabel: false,
                     ),
             ),
             Positioned(
@@ -2089,20 +3250,22 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
               top: 0,
               child: CallHeader(
                 callId: widget.callId,
-                isConnected: isConnected,
+                isConnected: isConnected || showOperatorCall,
                 displayName: _currentPeerDisplayName,
+                showCallId: false,
               ),
             ),
             if (localPreview != null)
               Positioned(
                 right: 16,
                 top: 96,
-                width: isConnected ? 118 : 136,
-                height: isConnected ? 158 : 182,
+                width: isConnected ? 128 : 140,
+                height: isConnected ? 172 : 188,
                 child: _ZegoVideoSurface(
                   view: localPreview,
                   label: isConnected ? 'You' : 'Camera ready',
                   compact: true,
+                  aspectRatio: 3 / 4,
                 ),
               ),
             if (_isAiTriageCall &&
@@ -2143,6 +3306,139 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
   }
 }
 
+class _CallInfoRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _CallInfoRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 105,
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.48),
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AigorActionItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  const _AigorActionItem({required this.icon, required this.label, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: const Color(0xFF081C33),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFF00A2FF).withValues(alpha: 0.2),
+                  width: 1,
+                ),
+              ),
+              child: Icon(icon, color: const Color(0xFF00A2FF), size: 20),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.7),
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                height: 1.2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class WaveformPainter extends CustomPainter {
+  final double animationValue;
+  final bool isSpeaking;
+  WaveformPainter({required this.animationValue, required this.isSpeaking});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFF00D4FF).withValues(alpha: 0.35)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+
+    final double midY = size.height / 2;
+    final int barCount = 36;
+    final double spacing = size.width / (barCount - 1);
+
+    for (int i = 0; i < barCount; i++) {
+      final double x = i * spacing;
+      final double distFromCenter = (x - size.width / 2).abs();
+      if (distFromCenter < 80) continue; // Keep space for Aigor circle
+
+      double baseHeight = 12.0;
+      if (isSpeaking) {
+        baseHeight += 24.0 * sin(i * 0.5 + animationValue * 2 * pi).abs();
+      } else {
+        baseHeight += 6.0 * sin(i * 0.2 + animationValue * pi).abs();
+      }
+
+      canvas.drawLine(
+        Offset(x, midY - baseHeight / 2),
+        Offset(x, midY + baseHeight / 2),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant WaveformPainter oldDelegate) {
+    return oldDelegate.animationValue != animationValue ||
+        oldDelegate.isSpeaking != isSpeaking;
+  }
+}
+
 String _roomNameForCall(String callId) {
   return callId.startsWith('call_') || callId.startsWith('sos_')
       ? callId
@@ -2166,18 +3462,6 @@ Set<String> _callAliasesFor(String value) {
     }
   }
   return aliases;
-}
-
-bool _hasExplicitCallIdentity(Map<String, dynamic> payload) {
-  return payload.containsKey('room') ||
-      payload.containsKey('room_name') ||
-      payload.containsKey('roomName') ||
-      payload.containsKey('key') ||
-      payload.containsKey('call_id') ||
-      payload.containsKey('callId') ||
-      payload.containsKey('id') ||
-      payload.containsKey('sos_id') ||
-      payload.containsKey('sosId');
 }
 
 String _deriveAiSessionId(String callId) {
@@ -2272,11 +3556,15 @@ class _ZegoVideoSurface extends StatelessWidget {
   final Widget? view;
   final String label;
   final bool compact;
+  final bool showLabel;
+  final double? aspectRatio;
 
   const _ZegoVideoSurface({
     required this.view,
     required this.label,
     required this.compact,
+    this.showLabel = true,
+    this.aspectRatio,
   });
 
   @override
@@ -2295,44 +3583,53 @@ class _ZegoVideoSurface extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           if (view != null)
-            view!
+            if (aspectRatio == null)
+              view!
+            else
+              Center(
+                child: AspectRatio(
+                  aspectRatio: aspectRatio!,
+                  child: ClipRect(child: view!),
+                ),
+              )
           else
             CameraOffPlaceholder(
               name: label,
               compact: compact,
               isSpeaking: false,
             ),
-          Positioned(
-            left: compact ? 8 : 16,
-            bottom: compact ? 8 : 16,
-            right: compact ? 8 : 16,
-            child: Align(
-              alignment: Alignment.bottomLeft,
-              child: Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: compact ? 8 : 12,
-                  vertical: compact ? 4 : 6,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0F172A).withValues(alpha: 0.85),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.15),
-                    width: 1,
+          if (showLabel)
+            Positioned(
+              left: compact ? 8 : 16,
+              bottom: compact ? 8 : 16,
+              right: compact ? 8 : 16,
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: compact ? 8 : 12,
+                    vertical: compact ? 4 : 6,
                   ),
-                ),
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: compact ? 10 : 12,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F172A).withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: compact ? 10 : 12,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );

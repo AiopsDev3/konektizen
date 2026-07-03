@@ -5,11 +5,13 @@ class CallHeader extends StatefulWidget {
   final String callId;
   final bool isConnected;
   final String displayName;
+  final bool showCallId;
   const CallHeader({
     super.key,
     required this.callId,
     required this.isConnected,
     this.displayName = 'Command Center',
+    this.showCallId = true,
   });
   @override
   State<CallHeader> createState() => _CallHeaderState();
@@ -175,17 +177,19 @@ class _CallHeaderState extends State<CallHeader>
                     ],
                   ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  widget.callId,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.54),
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                    letterSpacing: 0.5,
+                if (widget.showCallId) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    widget.callId,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.54),
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                      letterSpacing: 0.5,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
