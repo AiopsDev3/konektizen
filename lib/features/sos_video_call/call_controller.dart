@@ -484,6 +484,21 @@ class CallController {
     await _startLocalPreview();
   }
 
+  Future<void> recoverVideoSurfaces() async {
+    if (isEnding) return;
+    await recoverLocalPreview();
+    if (isEnding || !_engineReady || remoteView != null) return;
+    final streamId = _remoteStreamCandidates.firstWhere(
+      (candidate) => candidate != _publishStreamId,
+      orElse: () => '',
+    );
+    if (streamId.isNotEmpty) {
+      await _startRemotePlayback(streamId);
+    } else {
+      onStateChanged();
+    }
+  }
+
   Future<void> disconnect() async {
     if (_isDisconnecting || _hasDisconnected) return;
     _isDisconnecting = true;

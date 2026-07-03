@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:konektizen/core/config/environment.dart';
 import 'package:konektizen/core/router/router.dart';
@@ -21,6 +24,8 @@ class SignalingService with WidgetsBindingObserver {
   Map<String, dynamic>? _activeAcceptedCallPayload;
   String? _pendingIncomingCallRoom;
   BuildContext? _pendingIncomingCallDialogContext;
+  Timer? _incomingRingTimer;
+  bool _incomingRingActive = false;
   bool _callScreenVisible = false;
   bool _lifecycleObserverAttached = false;
 
@@ -64,6 +69,29 @@ class SignalingService with WidgetsBindingObserver {
     );
   }
 
+  void _startIncomingRing() {
+    _incomingRingTimer?.cancel();
+    _incomingRingActive = true;
+
+    void playAlert() {
+      if (!_incomingRingActive) return;
+      unawaited(SystemSound.play(SystemSoundType.alert));
+      unawaited(HapticFeedback.mediumImpact());
+    }
+
+    playAlert();
+    _incomingRingTimer = Timer.periodic(
+      const Duration(milliseconds: 1300),
+      (_) => playAlert(),
+    );
+  }
+
+  void _stopIncomingRing() {
+    _incomingRingActive = false;
+    _incomingRingTimer?.cancel();
+    _incomingRingTimer = null;
+  }
+
   void _attachLifecycleObserver() {
     if (_lifecycleObserverAttached) return;
     WidgetsBinding.instance.addObserver(this);
@@ -88,9 +116,9 @@ class SignalingService with WidgetsBindingObserver {
         payload['call_id']?.toString() ??
         payload['id']?.toString();
     if (room == null || room.isEmpty) return false;
-    return _callAliasesFor(_activeAcceptedCallId).any(
-          _callAliasesFor(room).contains,
-        ) ||
+    return _callAliasesFor(
+          _activeAcceptedCallId,
+        ).any(_callAliasesFor(room).contains) ||
         _callAliasesFor(
           _activeAcceptedCallPayload?['callId']?.toString() ??
               _activeAcceptedCallPayload?['call_id']?.toString(),
@@ -116,6 +144,7 @@ class SignalingService with WidgetsBindingObserver {
     final dialogContext = _pendingIncomingCallDialogContext;
     _pendingIncomingCallRoom = null;
     _pendingIncomingCallDialogContext = null;
+    _stopIncomingRing();
     if (dialogContext != null) {
       try {
         Navigator.of(dialogContext, rootNavigator: true).pop(false);
@@ -257,10 +286,7 @@ class SignalingService with WidgetsBindingObserver {
       final payload = data is Map
           ? Map<String, dynamic>.from(data)
           : <String, dynamic>{};
-      if (!_isPayloadForCurrentReporter(
-        payload,
-        allowMissingReporter: false,
-      )) {
+      if (!_isPayloadForCurrentReporter(payload, allowMissingReporter: false)) {
         return;
       }
       final message = _extractDeclineMessage(payload);
@@ -295,10 +321,7 @@ class SignalingService with WidgetsBindingObserver {
       final payload = data is Map
           ? Map<String, dynamic>.from(data)
           : <String, dynamic>{};
-      if (!_isPayloadForCurrentReporter(
-        payload,
-        allowMissingReporter: false,
-      )) {
+      if (!_isPayloadForCurrentReporter(payload, allowMissingReporter: false)) {
         return;
       }
       final message = _extractDeclineMessage(payload);
@@ -350,9 +373,7 @@ class SignalingService with WidgetsBindingObserver {
 
       // ALIGNMENT: Emit join_reporter immediately on connect/reconnect
       if (_userId != null) {
-        debugPrint(
-          '[Signaling] Auto-joining reporter room: reporter_$_userId',
-        );
+        debugPrint('[Signaling] Auto-joining reporter room: reporter_$_userId');
         socket!.emit('join_reporter', {'reporter_id': _userId});
       }
       if (_activeAcceptedCallId != null) {
@@ -442,6 +463,7 @@ class SignalingService with WidgetsBindingObserver {
       _activeAcceptedCallPayload = null;
       _callScreenVisible = false;
     }
+    _stopIncomingRing();
   }
 
   void _markPayloadCallEnded(Map<String, dynamic> payload) {
@@ -470,7 +492,9 @@ class SignalingService with WidgetsBindingObserver {
   ) async {
     final context = rootNavigatorKey.currentContext;
     if (context == null) {
-      debugPrint('[Signaling] No context for incoming C3 call; opening directly.');
+      debugPrint(
+        '[Signaling] No context for incoming C3 call; opening directly.',
+      );
       _openCallScreenFromPayload(payload);
       return;
     }
@@ -499,6 +523,7 @@ class SignalingService with WidgetsBindingObserver {
         'C3 Command Center';
 
     _pendingIncomingCallRoom = room;
+    _startIncomingRing();
     final accepted = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -511,10 +536,7 @@ class SignalingService with WidgetsBindingObserver {
           ),
           title: const Text(
             'Incoming C3 Call',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-            ),
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
           ),
           content: Text(
             '$operatorName is calling about your emergency report.',
@@ -539,6 +561,7 @@ class SignalingService with WidgetsBindingObserver {
     );
     _pendingIncomingCallRoom = null;
     _pendingIncomingCallDialogContext = null;
+    _stopIncomingRing();
 
     if (accepted == true) {
       socket?.emit('call_accepted', {
@@ -576,6 +599,8 @@ class SignalingService with WidgetsBindingObserver {
     Map<String, dynamic> payload, {
     bool force = false,
   }) {
+    _stopIncomingRing();
+
     final callId =
         payload['callId']?.toString() ??
         payload['call_id']?.toString() ??
@@ -664,6 +689,7 @@ class SignalingService with WidgetsBindingObserver {
 
   void dispose() {
     debugPrint('[Signaling] Disposing socket connection');
+    _stopIncomingRing();
     if (_lifecycleObserverAttached) {
       WidgetsBinding.instance.removeObserver(this);
       _lifecycleObserverAttached = false;

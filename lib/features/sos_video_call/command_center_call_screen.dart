@@ -2013,6 +2013,56 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
         .trim();
   }
 
+  Future<void> _manualTransferToOperator() async {
+    if (_controller.isEnding || _operatorAccepted || _handoffRequested) return;
+    _handoffRequested = true;
+    _followUpFallbackTimer?.cancel();
+    _silenceNudgeTimer?.cancel();
+    _bargeInTimer?.cancel();
+    if (mounted) {
+      setState(
+        () => _aiStatusMessage =
+            'Manual transfer requested. Waiting for the command center to accept...',
+      );
+    }
+    try {
+      await _speech.stop();
+    } catch (_) {}
+    try {
+      await _stopAiSpeech();
+    } catch (_) {}
+
+    try {
+      final token = await apiService.getToken();
+      final sessionId = _aiCallerSessionId ?? _deriveAiSessionId(widget.callId);
+      final uri = Uri.parse(
+        '${ApiService.baseUrl}/ai-caller/sessions/${Uri.encodeComponent(sessionId)}/manual-handoff',
+      );
+      final response = await http
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode({'reason': 'caller_requested_operator'}),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw StateError('Manual handoff failed: ${response.statusCode}');
+      }
+    } catch (error) {
+      debugPrint('[SOS AI Voice] Manual handoff request failed: $error');
+      _handoffRequested = false;
+      if (mounted) {
+        setState(
+          () => _aiStatusMessage =
+              'Could not request manual transfer yet. Please try again.',
+        );
+      }
+    }
+  }
+
   Future<void> _handoffToOperator() async {
     if (_controller.isEnding || _handoffRequested) return;
     _handoffRequested = true;
@@ -2098,6 +2148,11 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       await _controller.ensureCameraEnabled();
       await _controller.setNativeMicrophoneMuted(false);
       await _controller.resumePublishingAfterAiTriage();
+      await _controller.recoverVideoSurfaces();
+      Future.delayed(const Duration(milliseconds: 900), () {
+        if (!mounted || _controller.isEnding || !_operatorAccepted) return;
+        unawaited(_controller.recoverVideoSurfaces());
+      });
     } catch (error) {
       debugPrint(
         '[SOS AI Voice] Could not resume AITELLIGENZ room publishing: $error',
@@ -2181,6 +2236,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
       );
   }
 
+  // ignore: unused_element
   Future<void> _setCallHold(bool hold) async {
     if (_isCallOnHold == hold) return;
     if (mounted) setState(() => _isCallOnHold = hold);
@@ -2210,11 +2266,13 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     );
   }
 
+  // ignore: unused_element
   Future<void> _toggleCamera() async {
     await _controller.toggleCamera();
     if (mounted) setState(() {});
   }
 
+  // ignore: unused_element
   Future<void> _shareLocationNow() async {
     await _controller.shareCurrentLocationNow();
     _showCallSnack('Live location shared with the command center.');
@@ -2278,6 +2336,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     );
   }
 
+  // ignore: unused_element
   Future<void> _showTextMessageSheet() async {
     final messageController = TextEditingController();
     await showModalBottomSheet<void>(
@@ -2388,6 +2447,22 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     VoidCallback? onPressEnd,
     bool isEndCall = false,
   }) {
+    final bgColor = isEndCall
+        ? const Color(0xFFFF3B30) // Red
+        : active
+            ? const Color(0xFF00A2FF).withValues(alpha: 0.18)
+            : const Color(0xFF161F30);
+    final borderColor = isEndCall
+        ? Colors.transparent
+        : active
+            ? const Color(0xFF00A2FF)
+            : Colors.white.withValues(alpha: 0.06);
+    final iconColor = isEndCall
+        ? Colors.white
+        : active
+            ? const Color(0xFF00A2FF)
+            : Colors.white;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -2397,50 +2472,42 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
           onTapUp: onPressEnd == null ? null : (_) => onPressEnd(),
           onTapCancel: onPressEnd,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
+            duration: const Duration(milliseconds: 150),
             width: isEndCall ? 68 : 56,
             height: isEndCall ? 68 : 56,
             decoration: BoxDecoration(
-              color: isEndCall
-                  ? const Color(0xFFFF2D55)
-                  : active
-                  ? const Color(0xFF00A2FF).withValues(alpha: 0.15)
-                  : Colors.white.withValues(alpha: 0.04),
+              color: bgColor,
               shape: BoxShape.circle,
               border: Border.all(
-                color: isEndCall
-                    ? Colors.transparent
-                    : active
-                    ? const Color(0xFF00A2FF)
-                    : Colors.white.withValues(alpha: 0.1),
+                color: borderColor,
                 width: active ? 2.0 : 1.0,
               ),
-              boxShadow: active
+              boxShadow: isEndCall
                   ? [
                       BoxShadow(
-                        color: const Color(0xFF00A2FF).withValues(alpha: 0.3),
-                        blurRadius: 12,
+                        color: const Color(0xFFFF3B30).withValues(alpha: 0.35),
+                        blurRadius: 14,
                         spreadRadius: 1,
                       ),
                     ]
-                  : isEndCall
-                  ? [
-                      BoxShadow(
-                        color: const Color(0xFFFF2D55).withValues(alpha: 0.3),
-                        blurRadius: 12,
-                        spreadRadius: 1,
-                      ),
-                    ]
-                  : null,
+                  : active
+                      ? [
+                          BoxShadow(
+                            color: const Color(0xFF00A2FF).withValues(alpha: 0.2),
+                            blurRadius: 10,
+                            spreadRadius: 0,
+                          ),
+                        ]
+                      : null,
             ),
-            child: Icon(icon, color: Colors.white, size: isEndCall ? 32 : 24),
+            child: Icon(icon, color: iconColor, size: isEndCall ? 30 : 24),
           ),
         ),
         const SizedBox(height: 8),
         Text(
           label,
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.7),
+            color: Colors.white.withValues(alpha: 0.6),
             fontSize: 11,
             fontWeight: FontWeight.w600,
           ),
@@ -2449,6 +2516,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
     );
   }
 
+  // ignore: unused_element
   Widget _buildVerticalDivider() {
     return Container(
       height: 40,
@@ -2458,6 +2526,11 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
   }
 
   Widget _buildAigorRedesignScreen(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    final screenWidth = mediaQuery.size.width;
+    final isTablet = screenWidth > 600;
+    final contentWidth = isTablet ? 520.0 : double.infinity;
+
     return Scaffold(
       backgroundColor: const Color(0xFF020813),
       body: Container(
@@ -2465,219 +2538,325 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFF020813), Color(0xFF051226), Color(0xFF020813)],
+            colors: [Color(0xFF020813), Color(0xFF030D1B), Color(0xFF020813)],
           ),
         ),
         child: SafeArea(
-          child: Column(
-            children: [
-              // 1. Top Header Bar
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 16,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    // Back Button
-                    GestureDetector(
-                      onTap: _endCall,
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.05),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.1),
-                            width: 1,
-                          ),
-                        ),
-                        child: const Icon(
-                          Icons.arrow_back_ios_new,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                      ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: contentWidth,
+              ),
+              child: Column(
+                children: [
+                  // 1. Top Header Bar
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 16,
                     ),
-                    // Center Titles
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text(
-                              'SOS CALL',
-                              style: TextStyle(
-                                color: Color(0xFF00B2FF),
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 1.5,
+                        // Back Button
+                        GestureDetector(
+                          onTap: _endCall,
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.05),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.1),
+                                width: 1,
                               ),
                             ),
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFF2D55),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                'LIVE',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.w900,
+                            child: const Icon(
+                              Icons.arrow_back_ios_new,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                          ),
+                        ),
+                        // Center Titles
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text(
+                                  'SOS CALL',
+                                  style: TextStyle(
+                                    color: Color(0xFF00B2FF),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1.5,
+                                  ),
                                 ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFF2D55),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'LIVE',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'AIGOR',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'AI Emergency Assistant',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.5),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'AIGOR',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'AI Emergency Assistant',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.5),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
+                        // Call Info Button
+                        GestureDetector(
+                          onTap: _showCallInfoSheet,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.transparent,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.15),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Call Info',
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.9),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.info,
+                                  color: Color(0xFF00A2FF),
+                                  size: 12,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
                     ),
-                    // Call Info Button
-                    GestureDetector(
-                      onTap: _showCallInfoSheet,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.transparent,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.15),
-                            width: 1,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'Call Info',
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.9),
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            const Icon(
-                              Icons.info,
-                              color: Color(0xFF00A2FF),
-                              size: 12,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+                  ),
 
-              // Scrollable area to handle varying device sizes
-              Expanded(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 16),
+                  // 2. Scrollable Body
+                  Expanded(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 12),
 
-                      // 2. Aigor Head & Waveform Graphics
-                      SizedBox(
-                        height: 220,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            // Waveform Background
-                            Positioned.fill(
-                              child: AnimatedBuilder(
-                                animation: _pulseController,
-                                builder: (context, child) {
-                                  return CustomPaint(
-                                    painter: WaveformPainter(
-                                      animationValue: _pulseController.value,
-                                      isSpeaking: _isAiSpeaking,
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                            // Concentric circles with Aigor Head
-                            Container(
-                              width: 190,
-                              height: 190,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: const Color(
-                                    0xFF00B2FF,
-                                  ).withValues(alpha: 0.2),
-                                  width: 1.5,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: const Color(
-                                      0xFF00B2FF,
-                                    ).withValues(alpha: 0.08),
-                                    blurRadius: 30,
-                                    spreadRadius: 5,
-                                  ),
-                                ],
-                              ),
+                          // Aigor Head & Waveform Graphics
+                          SizedBox(
+                            height: 220,
+                            child: Stack(
                               alignment: Alignment.center,
-                              child: Container(
-                                width: 174,
-                                height: 174,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: const Color(
-                                      0xFF00B2FF,
-                                    ).withValues(alpha: 0.4),
-                                    width: 2.0,
+                              children: [
+                                // Waveform Background
+                                Positioned.fill(
+                                  child: AnimatedBuilder(
+                                    animation: _pulseController,
+                                    builder: (context, child) {
+                                      return CustomPaint(
+                                        painter: WaveformPainter(
+                                          animationValue: _pulseController.value,
+                                          isSpeaking: _isAiSpeaking,
+                                        ),
+                                      );
+                                    },
                                   ),
                                 ),
-                                alignment: Alignment.center,
-                                child: Container(
-                                  width: 156,
-                                  height: 156,
+                                // Concentric circles with Aigor Head
+                                AnimatedBuilder(
+                                  animation: _pulseController,
+                                  builder: (context, child) {
+                                    final pulse = _pulseController.value;
+                                    return Container(
+                                      width: 190 + (pulse * 6),
+                                      height: 190 + (pulse * 6),
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: const Color(0xFF00B2FF).withValues(alpha: 0.15 + (pulse * 0.15)),
+                                          width: 1.5,
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: const Color(0xFF00B2FF).withValues(alpha: 0.05 + (pulse * 0.05)),
+                                            blurRadius: 25 + (pulse * 10),
+                                            spreadRadius: 2 + (pulse * 2),
+                                          ),
+                                        ],
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Container(
+                                        width: 174,
+                                        height: 174,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: const Color(0xFF00B2FF).withValues(alpha: 0.3 + (pulse * 0.15)),
+                                            width: 2.0,
+                                          ),
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: Container(
+                                          width: 156,
+                                          height: 156,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: const Color(0xFF00B2FF).withValues(alpha: 0.2),
+                                                blurRadius: 15,
+                                                spreadRadius: 2,
+                                              ),
+                                            ],
+                                          ),
+                                          child: ClipOval(
+                                            child: Image.asset(
+                                              'assets/images/aigor_avatar.png',
+                                              fit: BoxFit.cover,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          // Status Pill
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF051C33).withValues(alpha: 0.8),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: const Color(0xFF00A2FF).withValues(alpha: 0.35),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _isAiSpeaking
+                                      ? Icons.volume_up
+                                      : Icons.graphic_eq,
+                                  color: const Color(0xFF00A2FF),
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _isAiSpeaking
+                                      ? 'AIGOR IS SPEAKING...'
+                                      : _isPushToTalkRecording
+                                      ? 'AIGOR IS LISTENING...'
+                                      : 'AIGOR IS READY...',
+                                  style: const TextStyle(
+                                    color: Color(0xFF00A2FF),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 1.0,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                // Blinking dot
+                                AnimatedBuilder(
+                                  animation: _pulseController,
+                                  builder: (context, child) {
+                                    return Opacity(
+                                      opacity: _pulseController.value,
+                                      child: Container(
+                                        width: 8,
+                                        height: 8,
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFF00A2FF),
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 20),
+
+                          // Message Bubble
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            margin: const EdgeInsets.symmetric(horizontal: 20),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF061121).withValues(alpha: 0.75),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: const Color(0xFF0055FF).withValues(alpha: 0.12),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: const Color(
-                                          0xFF00B2FF,
-                                        ).withValues(alpha: 0.2),
-                                        blurRadius: 15,
-                                        spreadRadius: 2,
-                                      ),
-                                    ],
+                                    border: Border.all(
+                                      color: const Color(0xFF00A2FF).withValues(alpha: 0.4),
+                                      width: 1.5,
+                                    ),
                                   ),
                                   child: ClipOval(
                                     child: Image.asset(
@@ -2686,515 +2865,310 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
                                     ),
                                   ),
                                 ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // 3. Status Pill
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF04152A).withValues(alpha: 0.8),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: const Color(
-                              0xFF00A2FF,
-                            ).withValues(alpha: 0.3),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _isAiSpeaking
-                                  ? Icons.volume_up
-                                  : Icons.graphic_eq,
-                              color: const Color(0xFF00A2FF),
-                              size: 16,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              _isAiSpeaking
-                                  ? 'AIGOR IS SPEAKING...'
-                                  : _isPushToTalkRecording
-                                  ? 'AIGOR IS LISTENING...'
-                                  : 'AIGOR IS READY...',
-                              style: const TextStyle(
-                                color: Color(0xFF00A2FF),
-                                fontSize: 10,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 1.0,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            // Blinking dot
-                            AnimatedBuilder(
-                              animation: _pulseController,
-                              builder: (context, child) {
-                                return Opacity(
-                                  opacity: _pulseController.value,
-                                  child: Container(
-                                    width: 8,
-                                    height: 8,
-                                    decoration: const BoxDecoration(
-                                      color: Color(0xFF00A2FF),
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      // 4. Message Bubble
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        margin: const EdgeInsets.symmetric(horizontal: 20),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF041225).withValues(alpha: 0.7),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: const Color(
-                              0xFF0055FF,
-                            ).withValues(alpha: 0.15),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: const Color(
-                                    0xFF00A2FF,
-                                  ).withValues(alpha: 0.5),
-                                  width: 1.5,
-                                ),
-                              ),
-                              child: ClipOval(
-                                child: Image.asset(
-                                  'assets/images/aigor_avatar.png',
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    _latestAigorSpeech,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                  if (_latestAigorSpeech.toLowerCase().contains(
-                                        'emergency',
-                                      ) ||
-                                      _latestAigorSpeech.toLowerCase().contains(
-                                        'help',
-                                      ) ||
-                                      _latestAigorSpeech.contains('AIGOR')) ...[
-                                    const SizedBox(height: 8),
-                                    const Text(
-                                      'How can I assist you today?',
-                                      style: TextStyle(
-                                        color: Color(0xFF00A2FF),
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      if (_visibleCallerTranscript.isNotEmpty) ...[
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          margin: const EdgeInsets.symmetric(horizontal: 20),
-                          decoration: BoxDecoration(
-                            color: const Color(
-                              0xFF061A2F,
-                            ).withValues(alpha: 0.72),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: const Color(
-                                0xFF00A2FF,
-                              ).withValues(alpha: 0.18),
-                              width: 1.2,
-                            ),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(
-                                Icons.record_voice_over,
-                                color: Color(0xFF00A2FF),
-                                size: 18,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      _isPushToTalkRecording
-                                          ? 'LIVE TRANSCRIPTION'
-                                          : 'YOUR LAST MESSAGE',
-                                      style: TextStyle(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.48,
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        _latestAigorSpeech,
+                                        style: TextStyle(
+                                          color: Colors.white.withValues(alpha: 0.9),
+                                          fontSize: 13.5,
+                                          fontWeight: FontWeight.w500,
+                                          height: 1.45,
                                         ),
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: 1.0,
                                       ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      _visibleCallerTranscript,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        height: 1.35,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                      ],
-
-                      // 5. Quick Actions
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 16,
-                          horizontal: 12,
-                        ),
-                        margin: const EdgeInsets.symmetric(horizontal: 20),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF041225).withValues(alpha: 0.8),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.04),
-                            width: 1,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            _AigorActionItem(
-                              icon: Icons.location_on,
-                              label: 'Share Location',
-                              onTap: () => unawaited(_shareLocationNow()),
-                            ),
-                            _buildVerticalDivider(),
-                            _AigorActionItem(
-                              icon: Icons.message,
-                              label: 'Message AIGOR',
-                              onTap: () => unawaited(_showTextMessageSheet()),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      // 6. Recording progress card
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        margin: const EdgeInsets.symmetric(horizontal: 20),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1B0709).withValues(alpha: 0.8),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: const Color(0xFF4C1014),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFF2D55),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  AnimatedBuilder(
-                                    animation: _pulseController,
-                                    builder: (context, child) {
-                                      return Opacity(
-                                        opacity: _pulseController.value,
-                                        child: Container(
-                                          width: 6,
-                                          height: 6,
-                                          decoration: const BoxDecoration(
-                                            color: Colors.white,
-                                            shape: BoxShape.circle,
-                                          ),
+                                      const SizedBox(height: 10),
+                                      const Text(
+                                        'How can I assist you today?',
+                                        style: TextStyle(
+                                          color: Color(0xFF00A2FF),
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.bold,
                                         ),
-                                      );
-                                    },
-                                  ),
-                                  const SizedBox(width: 4),
-                                  const Text(
-                                    'REC',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Text(
-                                    'RECORDING IN PROGRESS',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    'Your call is being recorded for your safety.',
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.5,
                                       ),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: List.generate(8, (index) {
-                                    final height =
-                                        4.0 +
-                                        8.0 *
-                                            (sin(
-                                              index +
-                                                  _pulseController.value *
-                                                      2 *
-                                                      pi,
-                                            ).abs());
-                                    return Container(
-                                      margin: const EdgeInsets.symmetric(
-                                        horizontal: 1.5,
-                                      ),
-                                      width: 2,
-                                      height: height,
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFFF2D55),
-                                        borderRadius: BorderRadius.circular(1),
-                                      ),
-                                    );
-                                  }),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _formatDuration(_elapsed),
-                                  style: const TextStyle(
-                                    color: Color(0xFFFF2D55),
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w900,
-                                    fontFamily: 'monospace',
+                                    ],
                                   ),
                                 ),
                               ],
                             ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      // 7. Push-To-Talk Button
-                      if (_canUseAigorPushToTalk || _isPushToTalkRecording)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: Center(
-                            child: _AigorPushToTalkButton(
-                              enabled:
-                                  _canUseAigorPushToTalk ||
-                                  _isPushToTalkRecording,
-                              isRecording: _isPushToTalkRecording,
-                              onStart: _startPushToTalkRecording,
-                              onStop: _finishPushToTalkRecording,
-                            ),
                           ),
-                        ),
 
-                      const SizedBox(height: 20),
+                          const SizedBox(height: 20),
 
-                      // 8. Call controls
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 16,
-                          horizontal: 16,
-                        ),
-                        margin: const EdgeInsets.symmetric(horizontal: 20),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF041225).withValues(alpha: 0.8),
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.03),
-                            width: 1,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _buildControlItem(
-                              icon: _isCallOnHold
-                                  ? Icons.play_arrow
-                                  : Icons.pause,
-                              label: 'Hold',
-                              active: _isCallOnHold,
-                              onPressStart: () => unawaited(_setCallHold(true)),
-                              onPressEnd: () => unawaited(_setCallHold(false)),
-                            ),
-                            _buildControlItem(
-                              icon: _controller.isMicEnabled
-                                  ? Icons.mic
-                                  : Icons.mic_off,
-                              label: 'Mute',
-                              active: !_controller.isMicEnabled,
-                              onTap: () => unawaited(_toggleMute()),
-                            ),
-                            _buildControlItem(
-                              icon: Icons.call_end,
-                              label: 'End Call',
-                              active: false,
-                              isEndCall: true,
-                              onTap: _endCall,
-                            ),
-                            _buildControlItem(
-                              icon: _isSpeakerOn
-                                  ? Icons.volume_up
-                                  : Icons.volume_down,
-                              label: 'Speaker',
-                              active: _isSpeakerOn,
-                              onTap: () => unawaited(_toggleSpeaker()),
-                            ),
-                            _buildControlItem(
-                              icon: _controller.isCameraEnabled
-                                  ? Icons.videocam
-                                  : Icons.videocam_off,
-                              label: 'Camera',
-                              active: !_controller.isCameraEnabled,
-                              onTap: () => unawaited(_toggleCamera()),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      // 9. Footnote
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
-                        margin: const EdgeInsets.symmetric(horizontal: 20),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF041225).withValues(alpha: 0.6),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: const Color(
-                              0xFF00A2FF,
-                            ).withValues(alpha: 0.15),
-                            width: 1,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(
-                              Icons.auto_awesome,
-                              color: Color(0xFF00A2FF),
-                              size: 16,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'AIGOR will pass you to a human operator once the emergency details are ready. Please keep the call open.',
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.7),
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w600,
+                          // Caller Transcription Bubble
+                          if (_visibleCallerTranscript.isNotEmpty) ...[
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              margin: const EdgeInsets.symmetric(horizontal: 20),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF061A2F).withValues(alpha: 0.72),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: const Color(0xFF00A2FF).withValues(alpha: 0.18),
+                                  width: 1.2,
                                 ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(
+                                    Icons.record_voice_over,
+                                    color: Color(0xFF00A2FF),
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          _isPushToTalkRecording
+                                              ? 'LIVE TRANSCRIPTION'
+                                              : 'YOUR LAST MESSAGE',
+                                          style: TextStyle(
+                                            color: Colors.white.withValues(alpha: 0.48),
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.w900,
+                                            letterSpacing: 1.0,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          _visibleCallerTranscript,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            height: 1.35,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                          ],
+
+                          // Recording Progress Card
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            margin: const EdgeInsets.symmetric(horizontal: 20),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF13090A).withValues(alpha: 0.85),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: const Color(0xFF3D1216),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFF2D55),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      AnimatedBuilder(
+                                        animation: _pulseController,
+                                        builder: (context, child) {
+                                          return Opacity(
+                                            opacity: _pulseController.value,
+                                            child: Container(
+                                              width: 6,
+                                              height: 6,
+                                              decoration: const BoxDecoration(
+                                                color: Colors.white,
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                      const SizedBox(width: 4),
+                                      const Text(
+                                        'REC',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Text(
+                                        'RECORDING IN PROGRESS',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Your call is being recorded for your safety.',
+                                        style: TextStyle(
+                                          color: Colors.white.withValues(alpha: 0.5),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: List.generate(8, (index) {
+                                        final height =
+                                            4.0 +
+                                            8.0 *
+                                                (sin(
+                                                  index +
+                                                      _pulseController.value *
+                                                          2 *
+                                                          pi,
+                                                ).abs());
+                                        return Container(
+                                          margin: const EdgeInsets.symmetric(
+                                            horizontal: 1.5,
+                                          ),
+                                          width: 2,
+                                          height: height,
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFFF2D55),
+                                            borderRadius: BorderRadius.circular(1),
+                                          ),
+                                        );
+                                      }),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _formatDuration(_elapsed),
+                                      style: const TextStyle(
+                                        color: Color(0xFFFF2D55),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w900,
+                                        fontFamily: 'monospace',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 24),
+
+                          // Push-To-Talk Button
+                          if (_canUseAigorPushToTalk || _isPushToTalkRecording)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              child: _AigorPushToTalkButton(
+                                enabled: _canUseAigorPushToTalk || _isPushToTalkRecording,
+                                isRecording: _isPushToTalkRecording,
+                                onStart: _startPushToTalkRecording,
+                                onStop: _finishPushToTalkRecording,
+                              ),
+                            ),
+
+                          if (!_operatorAccepted) ...[
+                            const SizedBox(height: 16),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              child: _ManualTransferButton(
+                                enabled: !_handoffRequested && !_controller.isEnding,
+                                waiting: _handoffRequested,
+                                onTap: () => unawaited(_manualTransferToOperator()),
                               ),
                             ),
                           ],
-                        ),
-                      ),
 
-                      const SizedBox(height: 24),
-                    ],
+                          const SizedBox(height: 24),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
+
+                  // 3. Bottom Controls Panel
+                  _buildBottomControls(),
+                ],
               ),
-            ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildBottomControls() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+      margin: const EdgeInsets.only(left: 20, right: 20, bottom: 20, top: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0E1624).withValues(alpha: 0.95), // Dark premium card
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.04),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _buildControlItem(
+            icon: _controller.isMicEnabled ? Icons.mic : Icons.mic_off,
+            label: 'Mute',
+            active: !_controller.isMicEnabled,
+            onTap: () => unawaited(_toggleMute()),
+          ),
+          _buildControlItem(
+            icon: Icons.call_end,
+            label: 'End Call',
+            active: false,
+            isEndCall: true,
+            onTap: _endCall,
+          ),
+          _buildControlItem(
+            icon: _isSpeakerOn ? Icons.volume_up : Icons.volume_down,
+            label: 'Speaker',
+            active: _isSpeakerOn,
+            onTap: () => unawaited(_toggleSpeaker()),
+          ),
+        ],
       ),
     );
   }
@@ -3234,7 +3208,7 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
                           _controller.isConnecting && _controller.error == null,
                     )
                   : _ZegoVideoSurface(
-                      view: _controller.remoteView ?? _controller.localView,
+                      view: _controller.remoteView,
                       label: _controller.remoteView == null
                           ? (_operatorAccepted
                                 ? _currentPeerDisplayName
@@ -3265,7 +3239,6 @@ class _CommandCenterCallScreenState extends State<CommandCenterCallScreen>
                   view: localPreview,
                   label: isConnected ? 'You' : 'Camera ready',
                   compact: true,
-                  aspectRatio: 3 / 4,
                 ),
               ),
             if (_isAiTriageCall &&
@@ -3347,11 +3320,13 @@ class _CallInfoRow extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _AigorActionItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback? onTap;
 
+  // ignore: unused_element_parameter
   const _AigorActionItem({required this.icon, required this.label, this.onTap});
 
   @override
@@ -3402,33 +3377,35 @@ class WaveformPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFF00D4FF).withValues(alpha: 0.35)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..strokeCap = StrokeCap.round;
-
     final double midY = size.height / 2;
-    final int barCount = 36;
+    final int barCount = 32;
     final double spacing = size.width / (barCount - 1);
 
     for (int i = 0; i < barCount; i++) {
       final double x = i * spacing;
       final double distFromCenter = (x - size.width / 2).abs();
-      if (distFromCenter < 80) continue; // Keep space for Aigor circle
+      // Leave space for the Aigor circle in the center
+      if (distFromCenter < 100) continue;
 
-      double baseHeight = 12.0;
+      double baseHeight = 6.0;
       if (isSpeaking) {
-        baseHeight += 24.0 * sin(i * 0.5 + animationValue * 2 * pi).abs();
+        baseHeight += 28.0 * sin(i * 0.5 + animationValue * 2 * pi).abs();
       } else {
-        baseHeight += 6.0 * sin(i * 0.2 + animationValue * pi).abs();
+        baseHeight += 10.0 * sin(i * 0.2 + animationValue * pi).abs();
       }
 
-      canvas.drawLine(
-        Offset(x, midY - baseHeight / 2),
-        Offset(x, midY + baseHeight / 2),
-        paint,
-      );
+      final double startY = midY - baseHeight / 2;
+      final int dots = (baseHeight / 4).round().clamp(1, 8);
+      final double step = baseHeight / (dots > 1 ? (dots - 1) : 1);
+      
+      final dotPaint = Paint()
+        ..color = const Color(0xFF00D4FF).withValues(alpha: isSpeaking ? 0.75 : 0.4)
+        ..style = PaintingStyle.fill;
+        
+      for (int d = 0; d < dots; d++) {
+        final double y = startY + d * (dots > 1 ? step : 0);
+        canvas.drawCircle(Offset(x, y), 1.5, dotPaint);
+      }
     }
   }
 
@@ -3552,19 +3529,89 @@ class _AigorPushToTalkButton extends StatelessWidget {
   }
 }
 
+class _ManualTransferButton extends StatelessWidget {
+  final bool enabled;
+  final bool waiting;
+  final VoidCallback onTap;
+
+  const _ManualTransferButton({
+    required this.enabled,
+    required this.waiting,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = waiting ? const Color(0xFFF59E0B) : const Color(0xFF38BDF8);
+    return Opacity(
+      opacity: enabled || waiting ? 1 : 0.55,
+      child: SizedBox(
+        width: 236,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: enabled ? onTap : null,
+            borderRadius: BorderRadius.circular(29),
+            child: Ink(
+              height: 58,
+              decoration: BoxDecoration(
+                color: const Color(0xFF061A2F).withValues(alpha: 0.92),
+                borderRadius: BorderRadius.circular(29),
+                border: Border.all(color: color.withValues(alpha: 0.7)),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: waiting ? 0.16 : 0.22),
+                    blurRadius: waiting ? 12 : 18,
+                    spreadRadius: waiting ? 0 : 1,
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    waiting ? Icons.hourglass_top : Icons.support_agent,
+                    color: color,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      waiting
+                          ? 'Waiting for human operator...'
+                          : 'Transfer to human operator',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 14,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ZegoVideoSurface extends StatelessWidget {
   final Widget? view;
   final String label;
   final bool compact;
   final bool showLabel;
-  final double? aspectRatio;
 
   const _ZegoVideoSurface({
     required this.view,
     required this.label,
     required this.compact,
     this.showLabel = true,
-    this.aspectRatio,
   });
 
   @override
@@ -3583,15 +3630,7 @@ class _ZegoVideoSurface extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           if (view != null)
-            if (aspectRatio == null)
-              view!
-            else
-              Center(
-                child: AspectRatio(
-                  aspectRatio: aspectRatio!,
-                  child: ClipRect(child: view!),
-                ),
-              )
+            view!
           else
             CameraOffPlaceholder(
               name: label,
