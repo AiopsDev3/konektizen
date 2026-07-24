@@ -1,19 +1,21 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:konektizen/core/api/api_service.dart';
+import 'package:konektizen/core/config/app_edition.dart';
 
 class SOSService {
   // TODO: Fetch this from backend settings in the future
   Future<String> getHotlineNumber() async {
     // Return mock hotline for now
-    return '911'; 
+    return '911';
   }
 
   Future<Map<String, dynamic>?> sendSOS({
-    required double latitude, 
+    required double latitude,
     required double longitude,
     required String hotlineNumber,
   }) async {
+    if (!AppFeatures.sosCallsEnabled) return null;
     final token = await apiService.getToken();
     if (token == null) return null;
 
@@ -23,13 +25,15 @@ class SOSService {
       try {
         user = await apiService.getCurrentUser();
       } catch (e) {
-        print('[SOS] Warning: Could not get user info (token may be expired): $e');
+        print(
+          '[SOS] Warning: Could not get user info (token may be expired): $e',
+        );
         // Continue anyway - C3 can identify user from token
       }
-      
+
       final url = Uri.parse('${ApiService.baseUrl}/sos/');
       print('Sending SOS to: $url');
-      
+
       final body = {
         'latitude': latitude,
         'longitude': longitude,
@@ -37,23 +41,25 @@ class SOSService {
         'timestamp': DateTime.now().toIso8601String(),
         'platform': 'android', // Simplified for now
         if (user != null) ...{
-           'userId': user['_id'] ?? user['id'],
-           'userName': user['fullName'] ?? user['name'] ?? 'Unknown',
-           'userStatus': user['verificationStatus'] ?? 'unknown',
-        }
+          'userId': user['_id'] ?? user['id'],
+          'userName': user['fullName'] ?? user['name'] ?? 'Unknown',
+          'userStatus': user['verificationStatus'] ?? 'unknown',
+        },
       };
 
       print('SOS Payload: $body');
 
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-          'Bypass-Tunnel-Reminder': 'true',
-        },
-        body: jsonEncode(body),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            url,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+              'Bypass-Tunnel-Reminder': 'true',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 10));
 
       print('SOS Response: ${response.statusCode} - ${response.body}');
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -70,21 +76,22 @@ class SOSService {
   // Helper for Video Call (Flask)
   Future<Map<String, dynamic>?> startVideoCall({
     required double latitude,
-    required double longitude, 
+    required double longitude,
     required String hotlineNumber,
   }) async {
+    if (!AppFeatures.sosCallsEnabled) return null;
     final token = await apiService.getToken();
     if (token == null) return null;
 
     try {
       final user = await apiService.getCurrentUser();
-      
+
       // Connect to C3 Command Center Web (Socket/Video)
       final url = Uri.parse('${ApiService.baseUrl}/sos/video/start');
       print('[SOS Service] ========================================');
       print('[SOS Service] Starting video call...');
       print('[SOS Service] URL: $url');
-      
+
       final body = {
         'latitude': latitude,
         'longitude': longitude,
@@ -92,26 +99,28 @@ class SOSService {
         'timestamp': DateTime.now().toIso8601String(),
         'platform': 'android',
         if (user != null) ...{
-           'userId': user['_id'] ?? user['id'],
-           'userName': user['fullName'] ?? user['name'] ?? 'Unknown',
-        }
+          'userId': user['_id'] ?? user['id'],
+          'userName': user['fullName'] ?? user['name'] ?? 'Unknown',
+        },
       };
-      
+
       print('[SOS Service] Payload: $body');
       print('[SOS Service] ========================================');
-      
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode(body),
-      ).timeout(const Duration(seconds: 15));
-      
+
+      final response = await http
+          .post(
+            url,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 15));
+
       print('[SOS Service] Response status: ${response.statusCode}');
       print('[SOS Service] Response body: ${response.body}');
-      
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         print('[SOS Service] ✓ Video call session created successfully');

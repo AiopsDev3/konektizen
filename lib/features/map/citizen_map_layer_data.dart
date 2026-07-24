@@ -1,3 +1,5 @@
+import 'package:konektizen/features/map/citizen_map_hazard_catalog.dart';
+
 Map<String, dynamic> laoagStatusFeature({
   required String label,
   required String color,
@@ -73,13 +75,6 @@ List<Map<String, dynamic>> quakeFeaturesNearLaoag(Map<String, dynamic> data) {
 
     final properties = feature['properties'] as Map<String, dynamic>? ?? {};
     final magnitude = (properties['mag'] as num?)?.toDouble();
-    final depthColor = depth == null
-        ? "#ef4444"
-        : depth >= 70
-        ? "#3b82f6"
-        : depth >= 30
-        ? "#f59e0b"
-        : "#ef4444";
     features.add({
       "type": "Feature",
       "geometry": {
@@ -92,7 +87,7 @@ List<Map<String, dynamic>> quakeFeaturesNearLaoag(Map<String, dynamic> data) {
             : "M${magnitude.toStringAsFixed(1)} earthquake",
         "mag": magnitude ?? 2.5,
         "depth": depth ?? 0,
-        "color": depthColor,
+        "color": earthquakeMagnitudeColor(magnitude),
         "radius": magnitude == null ? 8 : (magnitude.clamp(2.5, 7.0) * 2.0),
       },
     });

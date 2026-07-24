@@ -5,12 +5,14 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:konektizen/core/api/api_service.dart';
 import 'package:konektizen/features/home/widgets/city_advisory_filters.dart';
 
 class HomeWeatherForecast extends ConsumerStatefulWidget {
   const HomeWeatherForecast({super.key});
   @override
-  ConsumerState<HomeWeatherForecast> createState() => _HomeWeatherForecastState();
+  ConsumerState<HomeWeatherForecast> createState() =>
+      _HomeWeatherForecastState();
 }
 
 class _HomeWeatherForecastState extends ConsumerState<HomeWeatherForecast> {
@@ -31,8 +33,16 @@ class _HomeWeatherForecastState extends ConsumerState<HomeWeatherForecast> {
 
   Future<void> _fetchWeather() async {
     try {
-      final res = await http.get(Uri.parse(
-          'https://api.open-meteo.com/v1/forecast?latitude=18.1960&longitude=120.5989&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&hourly=precipitation_probability,weathercode&timezone=Asia%2FManila'));
+      final c3Loaded = await _fetchC3Weather();
+      if (c3Loaded) return;
+
+      final res = await http
+          .get(
+            Uri.parse(
+              'https://api.open-meteo.com/v1/forecast?latitude=18.1960&longitude=120.5989&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&hourly=precipitation_probability,weathercode&timezone=Asia%2FManila',
+            ),
+          )
+          .timeout(const Duration(seconds: 12));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final daily = data['daily'];
@@ -42,7 +52,9 @@ class _HomeWeatherForecastState extends ConsumerState<HomeWeatherForecast> {
         final forecast = List.generate(7, (i) {
           final date = DateTime.parse(daily['time'][i]);
           return {
-            'day': i == 0 ? 'TDY' : DateFormat('EEE').format(date).toUpperCase(),
+            'day': i == 0
+                ? 'TDY'
+                : DateFormat('EEE').format(date).toUpperCase(),
             'code': daily['weathercode'][i],
             'maxTemp': daily['temperature_2m_max'][i].round(),
             'minTemp': daily['temperature_2m_min'][i].round(),
@@ -52,7 +64,8 @@ class _HomeWeatherForecastState extends ConsumerState<HomeWeatherForecast> {
         var rainExpected = 'No rain expected soon';
         for (int i = 0; i < 24; i++) {
           if (hourly['precipitation_probability'][i] > 30) {
-            rainExpected = 'Rain expected at ${DateFormat('h:mm a').format(DateTime.parse(hourly['time'][i]))} (${hourly['precipitation_probability'][i]}%)';
+            rainExpected =
+                'Rain expected at ${DateFormat('h:mm a').format(DateTime.parse(hourly['time'][i]))} (${hourly['precipitation_probability'][i]}%)';
             break;
           }
         }
@@ -64,7 +77,8 @@ class _HomeWeatherForecastState extends ConsumerState<HomeWeatherForecast> {
             _feelsLike = current['apparent_temperature']?.round() ?? 38;
             _humidity = current['relative_humidity_2m']?.round() ?? 70;
             _windSpeed = current['wind_speed_10m']?.round() ?? 14;
-            _currentWeatherCode = current['weather_code'] ?? daily['weathercode'][0] ?? 0;
+            _currentWeatherCode =
+                current['weather_code'] ?? daily['weathercode'][0] ?? 0;
             _rainText = rainExpected;
             _isLoading = false;
           });
@@ -80,6 +94,134 @@ class _HomeWeatherForecastState extends ConsumerState<HomeWeatherForecast> {
         });
       }
     }
+  }
+
+  Future<bool> _fetchC3Weather() async {
+    final uri = Uri.parse('${ApiService.baseUrl}/weather/history').replace(
+      queryParameters: {
+        'municipality': 'Laoag City',
+        'province': 'Ilocos Norte',
+        'region': 'Region I',
+        'hours': '720',
+        'limit': '50',
+      },
+    );
+
+    try {
+      final res = await http.get(uri).timeout(const Duration(seconds: 12));
+      if (res.statusCode != 200) return false;
+
+      final decoded = jsonDecode(res.body);
+      final history = decoded is Map ? decoded['history'] : null;
+      if (history is! List || history.isEmpty) return false;
+
+      final rows = history.whereType<Map>().toList();
+      if (rows.isEmpty) return false;
+      rows.sort((a, b) => _rowTime(b).compareTo(_rowTime(a)));
+
+      final latest = rows.first.cast<String, dynamic>();
+      final forecast = _buildForecastFromC3Rows(rows);
+      if (forecast.length < 7) {
+        forecast.addAll(_fallbackForecastRows(forecast.length, latest));
+      }
+
+      final precipitationProbability = _asInt(
+        latest['precipitation_probability_24h'],
+      );
+      final precipitation = _asDouble(latest['precipitation']);
+      final rainText = precipitationProbability >= 30
+          ? 'Rain expected today ($precipitationProbability%)'
+          : precipitation > 0
+          ? 'Light rain observed nearby'
+          : 'No rain expected soon';
+
+      if (!mounted) return true;
+      setState(() {
+        _dailyForecast = forecast.take(7).toList();
+        _currentTemp = _asInt(latest['temperature'], fallback: _currentTemp);
+        _feelsLike = _asInt(
+          latest['apparent_temperature'],
+          fallback: _feelsLike,
+        );
+        _humidity = _asInt(latest['humidity'], fallback: _humidity);
+        _windSpeed = _asInt(latest['wind_speed'], fallback: _windSpeed);
+        _currentWeatherCode = _asInt(
+          latest['weather_code'],
+          fallback: _currentWeatherCode,
+        );
+        _rainText = rainText;
+        _isLoading = false;
+        _hasError = false;
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  List<Map<String, dynamic>> _buildForecastFromC3Rows(List<Map> rows) {
+    final byDate = <String, Map<String, dynamic>>{};
+    for (final row in rows) {
+      final sourceTime =
+          DateTime.tryParse('${row['source_time'] ?? ''}') ??
+          DateTime.tryParse('${row['fetched_at'] ?? ''}');
+      if (sourceTime == null) continue;
+      final key = DateFormat('yyyy-MM-dd').format(sourceTime);
+      byDate.putIfAbsent(key, () => row.cast<String, dynamic>());
+    }
+
+    final today = DateTime.now();
+    return List.generate(7, (index) {
+      final date = DateTime(today.year, today.month, today.day + index);
+      final key = DateFormat('yyyy-MM-dd').format(date);
+      final row = byDate[key] ?? (rows.first).cast<String, dynamic>();
+      final temp = _asInt(row['temperature'], fallback: _currentTemp);
+      return {
+        'day': index == 0
+            ? 'TDY'
+            : DateFormat('EEE').format(date).toUpperCase(),
+        'code': _asInt(row['weather_code'], fallback: _currentWeatherCode),
+        'maxTemp': temp,
+        'minTemp': _asInt(row['apparent_temperature'], fallback: temp),
+      };
+    });
+  }
+
+  List<Map<String, dynamic>> _fallbackForecastRows(
+    int startIndex,
+    Map<String, dynamic> latest,
+  ) {
+    final today = DateTime.now();
+    final temp = _asInt(latest['temperature'], fallback: _currentTemp);
+    return List.generate(7 - startIndex, (offset) {
+      final index = startIndex + offset;
+      final date = DateTime(today.year, today.month, today.day + index);
+      return {
+        'day': index == 0
+            ? 'TDY'
+            : DateFormat('EEE').format(date).toUpperCase(),
+        'code': _asInt(latest['weather_code'], fallback: _currentWeatherCode),
+        'maxTemp': temp,
+        'minTemp': _asInt(latest['apparent_temperature'], fallback: temp),
+      };
+    });
+  }
+
+  DateTime _rowTime(Map row) {
+    return DateTime.tryParse('${row['fetched_at'] ?? ''}') ??
+        DateTime.tryParse('${row['source_time'] ?? ''}') ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  int _asInt(dynamic value, {int fallback = 0}) {
+    if (value is num && value.isFinite) return value.round();
+    final parsed = num.tryParse('$value');
+    return parsed?.round() ?? fallback;
+  }
+
+  double _asDouble(dynamic value, {double fallback = 0}) {
+    if (value is num && value.isFinite) return value.toDouble();
+    return double.tryParse('$value') ?? fallback;
   }
 
   @override
@@ -151,11 +293,15 @@ class _HomeWeatherForecastState extends ConsumerState<HomeWeatherForecast> {
                 const SizedBox(width: 8),
                 TextButton(
                   onPressed: () {
-                    ref.read(selectedCategoryFilterProvider.notifier).state = 'Alerts';
+                    ref.read(selectedCategoryFilterProvider.notifier).state =
+                        'Alerts';
                     context.push('/home/city-updates');
                   },
                   style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
@@ -195,7 +341,7 @@ class _HomeWeatherForecastState extends ConsumerState<HomeWeatherForecast> {
                 color: Colors.black.withOpacity(0.02),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
-              )
+              ),
             ],
           ),
           child: Column(
@@ -352,7 +498,8 @@ class _HomeWeatherForecastState extends ConsumerState<HomeWeatherForecast> {
                 children: [
                   TextButton(
                     onPressed: () {
-                      ref.read(selectedCategoryFilterProvider.notifier).state = 'Weather';
+                      ref.read(selectedCategoryFilterProvider.notifier).state =
+                          'Weather';
                       context.push('/home/city-updates');
                     },
                     style: TextButton.styleFrom(
@@ -368,7 +515,9 @@ class _HomeWeatherForecastState extends ConsumerState<HomeWeatherForecast> {
                           style: GoogleFonts.inter(
                             fontSize: 11,
                             fontWeight: FontWeight.w800,
-                            color: const Color(0xFF166534), // Dark Green Accent Link
+                            color: const Color(
+                              0xFF166534,
+                            ), // Dark Green Accent Link
                           ),
                         ),
                         const SizedBox(width: 2),

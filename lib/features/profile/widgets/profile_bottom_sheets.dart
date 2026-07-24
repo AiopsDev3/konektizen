@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:go_router/go_router.dart';
+import 'package:konektizen/core/config/app_edition.dart';
 import 'package:konektizen/core/localization/app_language.dart';
 import 'package:konektizen/core/localization/app_localizations.dart';
 import 'package:konektizen/features/profile/accessibility_provider.dart';
@@ -44,8 +45,11 @@ class ProfileBottomSheets {
                       color: AppTheme.primary.withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.translate_rounded,
-                        color: AppTheme.primary, size: 20),
+                    child: const Icon(
+                      Icons.translate_rounded,
+                      color: AppTheme.primary,
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Text(
@@ -65,26 +69,36 @@ class ProfileBottomSheets {
                   padding: const EdgeInsets.only(bottom: 12),
                   child: InkWell(
                     onTap: () async {
-                      await ref.read(appLanguageProvider.notifier).setLanguage(lang);
-                      final isScreenReader = ref.read(accessibilityProvider).screenReader;
+                      await ref
+                          .read(appLanguageProvider.notifier)
+                          .setLanguage(lang);
+                      final isScreenReader = ref
+                          .read(accessibilityProvider)
+                          .screenReader;
                       if (isScreenReader) {
                         // ignore: deprecated_member_use
                         SemanticsService.announce(
-                            'Language changed to ${lang.nativeLabel}',
-                            TextDirection.ltr);
+                          'Language changed to ${lang.nativeLabel}',
+                          TextDirection.ltr,
+                        );
                       }
                       if (sheetContext.mounted) Navigator.pop(sheetContext);
                     },
                     borderRadius: BorderRadius.circular(16),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
                       decoration: BoxDecoration(
                         color: isSelected
                             ? AppTheme.primary.withValues(alpha: 0.05)
                             : Colors.white,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: isSelected ? AppTheme.primary : const Color(0xFFE2E8F0),
+                          color: isSelected
+                              ? AppTheme.primary
+                              : const Color(0xFFE2E8F0),
                           width: isSelected ? 2 : 1,
                         ),
                       ),
@@ -100,7 +114,9 @@ class ProfileBottomSheets {
                             ),
                             child: Icon(
                               Icons.translate_rounded,
-                              color: isSelected ? AppTheme.primary : const Color(0xFF64748B),
+                              color: isSelected
+                                  ? AppTheme.primary
+                                  : const Color(0xFF64748B),
                               size: 18,
                             ),
                           ),
@@ -114,7 +130,9 @@ class ProfileBottomSheets {
                                   style: GoogleFonts.inter(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w700,
-                                    color: isSelected ? AppTheme.primary : const Color(0xFF1E293B),
+                                    color: isSelected
+                                        ? AppTheme.primary
+                                        : const Color(0xFF1E293B),
                                   ),
                                 ),
                                 const SizedBox(height: 2),
@@ -174,8 +192,11 @@ class ProfileBottomSheets {
                             color: AppTheme.primary.withValues(alpha: 0.1),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.accessibility_new_rounded,
-                              color: AppTheme.primary, size: 20),
+                          child: const Icon(
+                            Icons.accessibility_new_rounded,
+                            color: AppTheme.primary,
+                            size: 20,
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Text(
@@ -195,14 +216,17 @@ class ProfileBottomSheets {
                       title: Text(
                         'High Contrast Mode',
                         style: GoogleFonts.inter(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFF1E293B)),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF1E293B),
+                        ),
                       ),
                       subtitle: Text(
                         'Increase text contrast across screens.',
                         style: GoogleFonts.inter(
-                            fontSize: 12, color: const Color(0xFF64748B)),
+                          fontSize: 12,
+                          color: const Color(0xFF64748B),
+                        ),
                       ),
                       value: settings.highContrast,
                       onChanged: (val) {
@@ -210,11 +234,15 @@ class ProfileBottomSheets {
                         if (val) {
                           // ignore: deprecated_member_use
                           SemanticsService.announce(
-                              'High Contrast Mode Enabled', TextDirection.ltr);
+                            'High Contrast Mode Enabled',
+                            TextDirection.ltr,
+                          );
                         } else {
                           // ignore: deprecated_member_use
                           SemanticsService.announce(
-                              'High Contrast Mode Disabled', TextDirection.ltr);
+                            'High Contrast Mode Disabled',
+                            TextDirection.ltr,
+                          );
                         }
                       },
                     ),
@@ -225,14 +253,17 @@ class ProfileBottomSheets {
                       title: Text(
                         'Screen Reader Assistance',
                         style: GoogleFonts.inter(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFF1E293B)),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF1E293B),
+                        ),
                       ),
                       subtitle: Text(
                         'Optimize components for spoken assistance.',
                         style: GoogleFonts.inter(
-                            fontSize: 12, color: const Color(0xFF64748B)),
+                          fontSize: 12,
+                          color: const Color(0xFF64748B),
+                        ),
                       ),
                       value: settings.screenReader,
                       onChanged: (val) {
@@ -240,11 +271,15 @@ class ProfileBottomSheets {
                         if (val) {
                           // ignore: deprecated_member_use
                           SemanticsService.announce(
-                              'Screen Reader Assistance Enabled', TextDirection.ltr);
+                            'Screen Reader Assistance Enabled',
+                            TextDirection.ltr,
+                          );
                         } else {
                           // ignore: deprecated_member_use
                           SemanticsService.announce(
-                              'Screen Reader Assistance Disabled', TextDirection.ltr);
+                            'Screen Reader Assistance Disabled',
+                            TextDirection.ltr,
+                          );
                         }
                       },
                     ),
@@ -258,7 +293,6 @@ class ProfileBottomSheets {
       },
     );
   }
-
 
   static void showHelpSheet(BuildContext context) {
     showModalBottomSheet(
@@ -282,8 +316,11 @@ class ProfileBottomSheets {
                         color: AppTheme.primary.withValues(alpha: 0.1),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.help_outline_rounded,
-                          color: AppTheme.primary, size: 20),
+                      child: const Icon(
+                        Icons.help_outline_rounded,
+                        color: AppTheme.primary,
+                        size: 20,
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Text(
@@ -299,19 +336,24 @@ class ProfileBottomSheets {
                 const SizedBox(height: 16),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading:
-                      const Icon(Icons.call_rounded, color: Color(0xFF10B981)),
+                  leading: const Icon(
+                    Icons.call_rounded,
+                    color: Color(0xFF10B981),
+                  ),
                   title: Text(
                     'Emergency Hotline (911)',
                     style: GoogleFonts.inter(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF1E293B)),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1E293B),
+                    ),
                   ),
                   subtitle: Text(
                     'Dial command center hotline immediately.',
                     style: GoogleFonts.inter(
-                        fontSize: 12, color: const Color(0xFF64748B)),
+                      fontSize: 12,
+                      color: const Color(0xFF64748B),
+                    ),
                   ),
                   onTap: () {
                     _launchUrl('tel:911');
@@ -320,19 +362,24 @@ class ProfileBottomSheets {
                 const Divider(color: Color(0xFFF1F5F9)),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.email_outlined,
-                      color: Color(0xFF3B82F6)),
+                  leading: const Icon(
+                    Icons.email_outlined,
+                    color: Color(0xFF3B82F6),
+                  ),
                   title: Text(
                     'Email Support',
                     style: GoogleFonts.inter(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF1E293B)),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1E293B),
+                    ),
                   ),
                   subtitle: Text(
                     'Get in touch at support@aitelligenz.com',
                     style: GoogleFonts.inter(
-                        fontSize: 12, color: const Color(0xFF64748B)),
+                      fontSize: 12,
+                      color: const Color(0xFF64748B),
+                    ),
                   ),
                   onTap: () {
                     _launchUrl('mailto:support@aitelligenz.com');
@@ -341,19 +388,26 @@ class ProfileBottomSheets {
                 const Divider(color: Color(0xFFF1F5F9)),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.info_outline_rounded,
-                      color: Color(0xFFF59E0B)),
+                  leading: const Icon(
+                    Icons.info_outline_rounded,
+                    color: Color(0xFFF59E0B),
+                  ),
                   title: Text(
                     'Frequently Asked Questions',
                     style: GoogleFonts.inter(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF1E293B)),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1E293B),
+                    ),
                   ),
                   subtitle: Text(
-                    'Learn how to file reports and trigger SOS.',
+                    AppFeatures.sosCallsEnabled
+                        ? 'Learn how to file reports and trigger SOS.'
+                        : 'Learn how to file and monitor reports.',
                     style: GoogleFonts.inter(
-                        fontSize: 12, color: const Color(0xFF64748B)),
+                      fontSize: 12,
+                      color: const Color(0xFF64748B),
+                    ),
                   ),
                   onTap: () {
                     _showFAQDialog(context);
@@ -362,19 +416,24 @@ class ProfileBottomSheets {
                 const Divider(color: Color(0xFFF1F5F9)),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.phone_in_talk_rounded,
-                      color: Color(0xFFEF4444)),
+                  leading: const Icon(
+                    Icons.phone_in_talk_rounded,
+                    color: Color(0xFFEF4444),
+                  ),
                   title: Text(
                     'Emergency Hotline Numbers',
                     style: GoogleFonts.inter(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF1E293B)),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1E293B),
+                    ),
                   ),
                   subtitle: Text(
                     'View Laoag City disaster, police, and fire contacts.',
                     style: GoogleFonts.inter(
-                        fontSize: 12, color: const Color(0xFF64748B)),
+                      fontSize: 12,
+                      color: const Color(0xFF64748B),
+                    ),
                   ),
                   onTap: () {
                     Navigator.pop(context);
@@ -395,12 +454,15 @@ class ProfileBottomSheets {
       context: context,
       builder: (context) {
         return AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: Text(
             'FAQs',
             style: GoogleFonts.inter(
-                fontWeight: FontWeight.w800, color: const Color(0xFF1E293B)),
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF1E293B),
+            ),
           ),
           content: SingleChildScrollView(
             child: Column(
@@ -412,14 +474,18 @@ class ProfileBottomSheets {
                   'Go to home screen and click "Report a Problem". Fill out description, category, and attach media.',
                 ),
                 const SizedBox(height: 12),
-                _buildFAQItem(
-                  'How to trigger SOS?',
-                  'Click the floating SOS button on the bottom menu to start an instant video call with the Command Center.',
-                ),
-                const SizedBox(height: 12),
+                if (AppFeatures.sosCallsEnabled) ...[
+                  _buildFAQItem(
+                    'How to trigger SOS?',
+                    'Click the floating SOS button on the bottom menu to start an instant video call with the Command Center.',
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 _buildFAQItem(
                   'Is my location shared?',
-                  'Yes, only when you submit a report or invoke the Emergency SOS call to help responders locate you.',
+                  AppFeatures.sosCallsEnabled
+                      ? 'Yes, only when you submit a report or invoke the Emergency SOS call to help responders locate you.'
+                      : 'Yes, only when you submit a report and location is needed to help responders find the incident.',
                 ),
               ],
             ),
@@ -430,9 +496,11 @@ class ProfileBottomSheets {
               child: Text(
                 'Close',
                 style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w700, color: AppTheme.primary),
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.primary,
+                ),
               ),
-            )
+            ),
           ],
         );
       },
@@ -446,15 +514,19 @@ class ProfileBottomSheets {
         Text(
           question,
           style: GoogleFonts.inter(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF1E293B)),
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF1E293B),
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           answer,
           style: GoogleFonts.inter(
-              fontSize: 12, color: const Color(0xFF475569), height: 1.3),
+            fontSize: 12,
+            color: const Color(0xFF475569),
+            height: 1.3,
+          ),
         ),
       ],
     );
@@ -514,8 +586,10 @@ class ProfileBottomSheets {
                 ),
                 const SizedBox(height: 20),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF1F5F9),
                     borderRadius: BorderRadius.circular(12),

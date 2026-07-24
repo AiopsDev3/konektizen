@@ -44,8 +44,8 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
   bool _showLocalHazards = false;
   bool _showBarangays = false;
   bool _showLegendsPanel = false;
-  int _layerOpacityPercent = 100;
-  List<int> _floodReturnPeriods = [5, 25];
+  int _layerOpacityPercent = 85;
+  List<int> _floodReturnPeriods = [5, 25, 100];
   List<int> _stormSurgeAdvisories = [1, 2, 3, 4];
 
   final Set<String> _addedSources = {};
@@ -299,8 +299,16 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
     setState(() => _showLegendsPanel = !_showLegendsPanel);
   }
 
+  void _toggleHazardFromMenu(VoidCallback toggle) {
+    toggle();
+    if (!mounted) return;
+    setState(() {
+      _showLayersMenu = false;
+      _showLegendsPanel = true;
+    });
+  }
+
   void _toggleFloodReturnPeriod(int period) {
-    if (period == 100) return;
     final next = List<int>.from(_floodReturnPeriods);
     next.contains(period) ? next.remove(period) : next.add(period);
     next.sort();
@@ -473,14 +481,17 @@ class _CitizenMapScreenState extends State<CitizenMapScreen> {
                 showLocalFacilities: _showLocalFacilities,
                 showLocalHazards: _showLocalHazards,
                 showBarangays: _showBarangays,
-                onToggleFlood: _toggleFlood,
-                onToggleLandslide: _toggleLandslide,
-                onToggleStormSurge: _toggleStormSurge,
-                onToggleTyphoon: _toggleTyphoon,
-                onToggleQuakes: _toggleQuakes,
-                onToggleRainRadar: _toggleRainRadar,
+                onToggleFlood: () => _toggleHazardFromMenu(_toggleFlood),
+                onToggleLandslide: () =>
+                    _toggleHazardFromMenu(_toggleLandslide),
+                onToggleStormSurge: () =>
+                    _toggleHazardFromMenu(_toggleStormSurge),
+                onToggleTyphoon: () => _toggleHazardFromMenu(_toggleTyphoon),
+                onToggleQuakes: () => _toggleHazardFromMenu(_toggleQuakes),
+                onToggleRainRadar: () =>
+                    _toggleHazardFromMenu(_toggleRainRadar),
                 onToggleFaults: _toggleFaults,
-                onToggleAqi: _toggleAqi,
+                onToggleAqi: () => _toggleHazardFromMenu(_toggleAqi),
                 onToggleLocalFacilities: _toggleLocalFacilities,
                 onToggleLocalHazards: _toggleLocalHazards,
                 onToggleBarangays: _toggleBarangays,

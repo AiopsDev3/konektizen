@@ -50,3 +50,8 @@ node_modules/
 .env
 .env.*
 !.env.example
+
+# Local SOS backend runtime files
+backend_sos/.python-packages/
+backend_sos/.venv/
+backend_sos/runtime_logs/

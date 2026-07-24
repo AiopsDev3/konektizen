@@ -23,9 +23,8 @@ import 'package:konektizen/features/auth/phone_profile_completion_screen.dart';
 import 'package:konektizen/features/sos/sos_confirmation_screen.dart';
 import 'package:konektizen/features/sos/emergency_hotlines_screen.dart';
 import 'package:konektizen/features/profile/edit_profile_screen.dart';
+import 'package:konektizen/core/config/app_edition.dart';
 import 'package:konektizen/core/api/api_service.dart';
-
-
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -102,7 +101,10 @@ final router = GoRouter(
     ),
     StatefulShellRoute(
       navigatorContainerBuilder: (context, navigationShell, children) {
-        return ShellScreen(navigationShell: navigationShell, children: children);
+        return ShellScreen(
+          navigationShell: navigationShell,
+          children: children,
+        );
       },
       builder: (context, state, navigationShell) {
         return navigationShell;
@@ -165,12 +167,12 @@ final router = GoRouter(
         ),
       ],
     ),
-    // SOS Full Screen Route
-    GoRoute(
-      path: '/sos',
-      parentNavigatorKey: rootNavigatorKey,
-      builder: (context, state) => const SOSConfirmationScreen(),
-    ),
+    if (AppFeatures.sosCallsEnabled)
+      GoRoute(
+        path: '/sos',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => const SOSConfirmationScreen(),
+      ),
     // Moved Report to top-level route (triggered from Home Grid)
     GoRoute(
       path: '/report',

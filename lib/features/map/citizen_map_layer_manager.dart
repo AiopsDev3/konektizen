@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import 'package:konektizen/core/api/api_service.dart';
 import 'package:konektizen/features/map/c3_local_layers_overlay.dart';
+import 'package:konektizen/features/map/citizen_map_hazard_catalog.dart';
 import 'package:konektizen/features/map/citizen_map_layer_data.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
@@ -14,20 +15,12 @@ class CitizenMapLayerManager {
   final MapLibreMapController? controller;
   final Set<String> addedSources;
   static final _assetGeoJsonCache = <String, Map<String, dynamic>>{};
-  static Map<String, dynamic>? _rainViewerFrameCache;
-  static DateTime? _rainViewerFrameFetchedAt;
 
   static void resetRuntimeState() {
     resetC3LocalLayerRuntimeState();
   }
 
   static const _cityLabelLayerId = 'konektizen-city-label';
-  static const _noahFloodAsset =
-      'assets/data/NOAH_Flood_IlocosNorte_Laoag.geojson';
-  static const _noahLandslideAsset =
-      'assets/data/NOAH_Landslide_IlocosNorte_Laoag.geojson';
-  static const _noahStormSurgeAsset =
-      'assets/data/NOAH_StormSurge_IlocosNorte_Laoag.geojson';
   static const _overlayBelowCandidates = [_cityLabelLayerId];
 
   Future<void> updateLayers({
@@ -197,74 +190,118 @@ class CitizenMapLayerManager {
     String? belowLayerId,
   ) async {
     final opacity = layerOpacity.clamp(0.0, 1.0);
-    await _syncGeoJsonFillLineLayer(
-      show: show,
-      sourceId: 'noah-flood-local-source',
-      fillLayerId: 'noah-flood-local-fill',
-      outlineLayerId: 'noah-flood-local-outline',
-      assetPath: _noahFloodAsset,
-      filter: _inFilter('return_period', returnPeriods),
-      fillProperties: FillLayerProperties(
-        fillColor: [
-          Expressions.match,
+    const sourceId = 'noah-flood-national-source';
+    final layerIds = <String>[
+      for (final period in const [5, 25, 100]) ...[
+        'noah-flood-fill-$period',
+        'noah-flood-outline-$period',
+      ],
+    ];
+    if (!show) {
+      if (addedSources.contains(sourceId)) {
+        await _setLayersVisible(layerIds, false);
+      }
+      return;
+    }
+
+    await _ensureNoahVectorSource(sourceId);
+    for (final period in const [5, 25, 100]) {
+      final fillId = 'noah-flood-fill-$period';
+      final outlineId = 'noah-flood-outline-$period';
+      final selected = returnPeriods.contains(period);
+      final fill = FillLayerProperties(
+        visibility: selected ? 'visible' : 'none',
+        fillColor: const [
+          'case',
           [
-            'to-string',
-            [Expressions.get, 'var'],
+            '==',
+            [
+              'to-number',
+              [
+                'coalesce',
+                [Expressions.get, 'Var'],
+                1,
+              ],
+            ],
+            1,
           ],
-          '1',
           '#9fcfe6',
-          '2',
+          [
+            '==',
+            [
+              'to-number',
+              [
+                'coalesce',
+                [Expressions.get, 'Var'],
+                1,
+              ],
+            ],
+            2,
+          ],
           '#4f97c6',
-          '3',
+          [
+            '==',
+            [
+              'to-number',
+              [
+                'coalesce',
+                [Expressions.get, 'Var'],
+                1,
+              ],
+            ],
+            3,
+          ],
           '#0b5f8e',
           '#4f97c6',
         ],
-        fillOpacity: [
-          '*',
-          [
-            'interpolate',
-            ['linear'],
-            [Expressions.get, 'return_period'],
-            5,
-            0.5,
-            25,
-            0.54,
-            100,
-            0.58,
-          ],
-          opacity,
-        ],
+        fillOpacity:
+            (period == 5
+                ? 0.42
+                : period == 25
+                ? 0.46
+                : 0.5) *
+            opacity,
         fillOutlineColor: 'rgba(11, 95, 142, 0)',
-      ),
-      outlineProperties: LineLayerProperties(
+        fillAntialias: true,
+      );
+      final outline = LineLayerProperties(
+        visibility: selected ? 'visible' : 'none',
         lineColor: '#0b5f8e',
         lineOpacity: [
-          '*',
-          [
-            'interpolate',
-            ['linear'],
-            [Expressions.zoom],
-            8,
-            0,
-            11,
-            0.03,
-            14,
-            0.07,
-          ],
-          opacity,
-        ],
-        lineWidth: [
           'interpolate',
           ['linear'],
           [Expressions.zoom],
+          8,
+          0,
           11,
-          0.1,
-          16,
-          0.35,
+          0.02 * opacity,
+          14,
+          0.05 * opacity,
         ],
-      ),
-      belowLayerId: belowLayerId,
-    );
+        lineWidth: const [
+          'interpolate',
+          ['linear'],
+          [Expressions.zoom],
+          8,
+          0,
+          11,
+          0.08,
+          14,
+          0.24,
+          16,
+          0.36,
+        ],
+      );
+      await _ensureVectorFillLineLayers(
+        sourceId: sourceId,
+        sourceLayer: 'flood_${period}yr',
+        fillLayerId: fillId,
+        outlineLayerId: outlineId,
+        fill: fill,
+        outline: outline,
+        belowLayerId: belowLayerId,
+      );
+    }
   }
 
   Future<void> _syncNoahLandslideLayer(
@@ -273,57 +310,94 @@ class CitizenMapLayerManager {
     String? belowLayerId,
   ) async {
     final opacity = layerOpacity.clamp(0.0, 1.0);
-    await _syncGeoJsonFillLineLayer(
-      show: show,
-      sourceId: 'noah-landslide-local-source',
-      fillLayerId: 'noah-landslide-local-fill',
-      outlineLayerId: 'noah-landslide-local-outline',
-      assetPath: _noahLandslideAsset,
-      fillProperties: FillLayerProperties(
-        fillColor: [
+    const sourceId = 'noah-landslide-national-source';
+    const layerIds = [
+      'noah-landslide-fill',
+      'noah-landslide-outline',
+      'noah-debris-flow-fill',
+      'noah-debris-flow-outline',
+    ];
+    if (!show) {
+      if (addedSources.contains(sourceId)) {
+        await _setLayersVisible(layerIds, false);
+      }
+      return;
+    }
+
+    await _ensureNoahVectorSource(sourceId);
+    for (final sourceLayer in const ['landslide', 'debris_flow']) {
+      final debrisFlow = sourceLayer == 'debris_flow';
+      final prefix = debrisFlow ? 'noah-debris-flow' : 'noah-landslide';
+      final classValue = [
+        'to-number',
+        [
           'coalesce',
-          [Expressions.get, 'fillColor'],
-          '#22c55e',
+          [Expressions.get, 'HAZ'],
+          1,
         ],
-        fillOpacity: [
-          '*',
-          [
-            'interpolate',
-            ['linear'],
+      ];
+      final color = [
+        'case',
+        ['==', classValue, 1],
+        '#facc15',
+        ['==', classValue, 2],
+        '#fb923c',
+        ['==', classValue, 3],
+        '#ef4444',
+        ['==', classValue, 4],
+        '#7f1d1d',
+        '#fb923c',
+      ];
+      await _ensureVectorFillLineLayers(
+        sourceId: sourceId,
+        sourceLayer: sourceLayer,
+        fillLayerId: '$prefix-fill',
+        outlineLayerId: '$prefix-outline',
+        fill: FillLayerProperties(
+          visibility: 'visible',
+          fillColor: color,
+          fillOpacity: [
+            '*',
+            debrisFlow ? 0.62 : 0.54,
             [
-              'coalesce',
-              [Expressions.get, 'lh'],
+              'interpolate',
+              ['linear'],
+              classValue,
+              1,
+              0.5,
+              2,
+              0.72,
+              3,
+              1,
+              4,
               1,
             ],
-            1,
-            0.32,
-            2,
-            0.44,
-            3,
-            0.58,
+            opacity,
           ],
-          opacity,
-        ],
-      ),
-      outlineProperties: LineLayerProperties(
-        lineColor: [
-          'coalesce',
-          [Expressions.get, 'fillColor'],
-          '#22c55e',
-        ],
-        lineOpacity: ['*', 0.66, opacity],
-        lineWidth: [
-          'interpolate',
-          ['linear'],
-          [Expressions.zoom],
-          11,
-          0.45,
-          16,
-          1.15,
-        ],
-      ),
-      belowLayerId: belowLayerId,
-    );
+          fillOutlineColor: 'rgba(127, 29, 29, 0)',
+          fillAntialias: true,
+        ),
+        outline: LineLayerProperties(
+          visibility: 'visible',
+          lineColor: color,
+          lineOpacity: (debrisFlow ? 0.9 : 0.72) * opacity,
+          lineWidth: const [
+            'interpolate',
+            ['linear'],
+            [Expressions.zoom],
+            7,
+            0.12,
+            10,
+            0.35,
+            13,
+            0.9,
+            15,
+            1.4,
+          ],
+        ),
+        belowLayerId: belowLayerId,
+      );
+    }
   }
 
   Future<void> _syncNoahStormSurgeLayer(
@@ -333,56 +407,93 @@ class CitizenMapLayerManager {
     String? belowLayerId,
   ) async {
     final opacity = layerOpacity.clamp(0.0, 1.0);
-    await _syncGeoJsonFillLineLayer(
-      show: show,
-      sourceId: 'noah-storm-surge-local-source',
-      fillLayerId: 'noah-storm-surge-local-fill',
-      outlineLayerId: 'noah-storm-surge-local-outline',
-      assetPath: _noahStormSurgeAsset,
-      filter: _inFilter('advisory', advisories),
-      fillProperties: FillLayerProperties(
-        fillColor: [
+    const sourceId = 'noah-storm-surge-national-source';
+    final layerIds = <String>[
+      for (final advisory in const [1, 2, 3, 4]) ...[
+        'noah-storm-surge-fill-$advisory',
+        'noah-storm-surge-outline-$advisory',
+      ],
+    ];
+    if (!show) {
+      if (addedSources.contains(sourceId)) {
+        await _setLayersVisible(layerIds, false);
+      }
+      return;
+    }
+
+    await _ensureNoahVectorSource(sourceId);
+    for (final advisory in const [1, 2, 3, 4]) {
+      final selected = advisories.contains(advisory);
+      final classValue = [
+        'to-number',
+        [
           'coalesce',
-          [Expressions.get, 'fillColor'],
-          '#fb923c',
+          [Expressions.get, 'HAZ'],
+          1,
         ],
-        fillOpacity: [
-          '*',
-          [
-            'interpolate',
-            ['linear'],
+      ];
+      final color = [
+        'case',
+        ['==', classValue, 1],
+        '#facc15',
+        ['==', classValue, 2],
+        '#fb923c',
+        ['==', classValue, 3],
+        '#ef4444',
+        '#f97316',
+      ];
+      await _ensureVectorFillLineLayers(
+        sourceId: sourceId,
+        sourceLayer: 'storm_surge_ssa$advisory',
+        fillLayerId: 'noah-storm-surge-fill-$advisory',
+        outlineLayerId: 'noah-storm-surge-outline-$advisory',
+        fill: FillLayerProperties(
+          visibility: selected ? 'visible' : 'none',
+          fillColor: color,
+          fillOpacity: [
+            '*',
+            advisory == 1
+                ? 0.34
+                : advisory == 2
+                ? 0.38
+                : advisory == 3
+                ? 0.42
+                : 0.46,
             [
-              'coalesce',
-              [Expressions.get, 'advisory'],
+              'interpolate',
+              ['linear'],
+              classValue,
+              1,
+              0.55,
+              2,
+              0.78,
+              3,
               1,
             ],
-            1,
-            0.28,
-            4,
-            0.48,
+            opacity,
           ],
-          opacity,
-        ],
-      ),
-      outlineProperties: LineLayerProperties(
-        lineColor: [
-          'coalesce',
-          [Expressions.get, 'fillColor'],
-          '#fb923c',
-        ],
-        lineOpacity: ['*', 0.7, opacity],
-        lineWidth: [
-          'interpolate',
-          ['linear'],
-          [Expressions.zoom],
-          11,
-          0.45,
-          16,
-          1.1,
-        ],
-      ),
-      belowLayerId: belowLayerId,
-    );
+          fillOutlineColor: 'rgba(127, 29, 29, 0)',
+          fillAntialias: true,
+        ),
+        outline: LineLayerProperties(
+          visibility: selected ? 'visible' : 'none',
+          lineColor: color,
+          lineOpacity: (advisory == 1 ? 0.42 : 0.58) * opacity,
+          lineWidth: const [
+            'interpolate',
+            ['linear'],
+            [Expressions.zoom],
+            5,
+            0.12,
+            9,
+            0.35,
+            13,
+            0.8,
+          ],
+        ),
+        belowLayerId: belowLayerId,
+      );
+    }
   }
 
   Future<void> _syncQuakeLayer(bool show, String? belowLayerId) async {
@@ -455,50 +566,33 @@ class CitizenMapLayerManager {
     }
 
     try {
-      final tileUrl = await _latestRainViewerTileUrl();
-      if (tileUrl == null) return;
       await _ensureRasterLayer(
         sourceId: sourceId,
         layerId: layerId,
-        tiles: [tileUrl],
+        tiles: [_latestGibsImergTileUrl()],
         opacity: 0.58,
-        maxzoom: 7,
+        maxzoom: 6,
         belowLayerId: belowLayerId,
       );
     } catch (e) {
-      debugPrint('Heavy rainfall RainViewer fetch failed: $e');
+      debugPrint('Heavy rainfall NASA GIBS layer failed: $e');
     }
   }
 
-  Future<String?> _latestRainViewerTileUrl() async {
-    final cachedAt = _rainViewerFrameFetchedAt;
-    final now = DateTime.now();
-    if (_rainViewerFrameCache == null ||
-        cachedAt == null ||
-        now.difference(cachedAt) > const Duration(minutes: 5)) {
-      final res = await http
-          .get(Uri.parse('https://api.rainviewer.com/public/weather-maps.json'))
-          .timeout(const Duration(seconds: 5));
-      if (res.statusCode != 200) return null;
-      _rainViewerFrameCache = jsonDecode(res.body) as Map<String, dynamic>;
-      _rainViewerFrameFetchedAt = now;
-    }
-
-    final data = _rainViewerFrameCache;
-    if (data == null) return null;
-    final radar = data['radar'];
-    if (radar is! Map) return null;
-    final frames = radar['past'];
-    if (frames is! List || frames.isEmpty) return null;
-    final latest = frames.last;
-    if (latest is! Map) return null;
-    final path = latest['path']?.toString();
-    if (path == null || path.isEmpty) return null;
-    final host = data['host']?.toString();
-    final tileHost = (host == null || host.isEmpty)
-        ? 'https://tilecache.rainviewer.com'
-        : host;
-    return '$tileHost$path/256/{z}/{x}/{y}/2/1_1.png';
+  String _latestGibsImergTileUrl() {
+    final frame = DateTime.now().toUtc().subtract(const Duration(hours: 6));
+    final minute = frame.minute >= 30 ? 30 : 0;
+    final rounded = DateTime.utc(
+      frame.year,
+      frame.month,
+      frame.day,
+      frame.hour,
+      minute,
+    );
+    final time = rounded.toIso8601String().replaceFirst('.000Z', 'Z');
+    return 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/'
+        'IMERG_Precipitation_Rate_30min/default/$time/'
+        'GoogleMapsCompatible_Level6/{z}/{y}/{x}.png';
   }
 
   Future<void> _syncFaultLayer(bool show, String? belowLayerId) async {
@@ -739,7 +833,7 @@ class CitizenMapLayerManager {
           'aqi': aqiValue,
           'pm25': pm25,
           'no2': no2,
-          'color': _aqiColor(aqiValue),
+          'color': aqiColor(aqiValue),
           'label': 'AQI $aqiValue',
           'source': 'Open-Meteo Air Quality',
         },
@@ -789,7 +883,7 @@ class CitizenMapLayerManager {
             'aqi': aqi,
             'pm25': data['pm2_5'],
             'no2': data['nitrogen_dioxide'],
-            'color': _aqiColor(aqi),
+            'color': aqiColor(aqi),
             'label': 'AQI $aqi',
             'source': data['sourceLabel'] ?? 'Open-Meteo Air Quality',
           },
@@ -842,77 +936,58 @@ class CitizenMapLayerManager {
     return num.tryParse(value?.toString() ?? '');
   }
 
-  Future<void> _syncGeoJsonFillLineLayer({
-    required bool show,
+  Future<void> _ensureNoahVectorSource(String sourceId) async {
+    if (addedSources.contains(sourceId)) return;
+    await controller?.addSource(
+      sourceId,
+      VectorSourceProperties(
+        tiles: [
+          '${ApiService.baseUrl}/gis-intelligence/noah/tiles/{z}/{x}/{y}.pbf',
+        ],
+        bounds: const [116.894531, 4.631179, 126.650391, 20.935789],
+        minzoom: 0,
+        maxzoom: 14,
+        attribution: 'Project NOAH / UP Resilience Institute / PAGASA',
+      ),
+    );
+    addedSources.add(sourceId);
+  }
+
+  Future<void> _ensureVectorFillLineLayers({
     required String sourceId,
+    required String sourceLayer,
     required String fillLayerId,
     required String outlineLayerId,
-    required String assetPath,
-    required FillLayerProperties fillProperties,
-    required LineLayerProperties outlineProperties,
-    dynamic filter,
+    required FillLayerProperties fill,
+    required LineLayerProperties outline,
     String? belowLayerId,
   }) async {
-    final layerIds = [fillLayerId, outlineLayerId];
-    final handledExisting = await _syncExistingVisibility(
-      show: show,
-      sourceId: sourceId,
-      layerIds: layerIds,
-    );
-    if (handledExisting) {
-      if (show && addedSources.contains(sourceId)) {
-        await _refreshFillLineLayer(
-          fillLayerId,
-          outlineLayerId,
-          fillProperties,
-          outlineProperties,
-          filter,
-        );
-      }
-      return;
-    }
-
-    try {
-      final geoJson = await _loadAssetGeoJson(assetPath);
-      await controller?.addGeoJsonSource(sourceId, geoJson);
+    final existing = (await controller?.getLayerIds())
+        ?.map((id) => id.toString())
+        .toSet();
+    if (existing?.contains(fillLayerId) == true) {
+      await controller?.setLayerProperties(fillLayerId, fill);
+    } else {
       await controller?.addFillLayer(
         sourceId,
         fillLayerId,
-        fillProperties,
+        fill,
+        sourceLayer: sourceLayer,
         belowLayerId: belowLayerId,
-        filter: filter,
         enableInteraction: false,
       );
+    }
+    if (existing?.contains(outlineLayerId) == true) {
+      await controller?.setLayerProperties(outlineLayerId, outline);
+    } else {
       await controller?.addLineLayer(
         sourceId,
         outlineLayerId,
-        outlineProperties,
+        outline,
+        sourceLayer: sourceLayer,
         belowLayerId: belowLayerId,
-        filter: filter,
         enableInteraction: false,
       );
-      addedSources.add(sourceId);
-    } catch (e) {
-      debugPrint('Failed to load $assetPath: $e');
-    }
-  }
-
-  Future<void> _refreshFillLineLayer(
-    String fillLayerId,
-    String outlineLayerId,
-    FillLayerProperties fillProperties,
-    LineLayerProperties outlineProperties,
-    dynamic filter,
-  ) async {
-    try {
-      await controller?.setLayerProperties(fillLayerId, fillProperties);
-      await controller?.setLayerProperties(outlineLayerId, outlineProperties);
-      if (filter != null) {
-        await controller?.setFilter(fillLayerId, filter);
-        await controller?.setFilter(outlineLayerId, filter);
-      }
-    } catch (e) {
-      debugPrint('Failed to refresh $fillLayerId/$outlineLayerId: $e');
     }
   }
 
@@ -936,7 +1011,8 @@ class CitizenMapLayerManager {
     final features = geoJson['features'];
     if (features is List) {
       for (final f in features) {
-        if (f is Map<String, dynamic> && f['properties'] is Map<String, dynamic>) {
+        if (f is Map<String, dynamic> &&
+            f['properties'] is Map<String, dynamic>) {
           final props = f['properties'] as Map<String, dynamic>;
           final name = props['brgy_name'] ?? props['name'] ?? '';
           final code = props['brgy_code'] ?? '';
@@ -1002,23 +1078,6 @@ class CitizenMapLayerManager {
       }
     }
     return geoJson;
-  }
-
-  List<dynamic> _inFilter(String property, List<int> values) {
-    return [
-      'in',
-      [Expressions.get, property],
-      ['literal', values],
-    ];
-  }
-
-  String _aqiColor(int value) {
-    if (value <= 50) return '#00e400';
-    if (value <= 100) return '#ffff00';
-    if (value <= 150) return '#ff7e00';
-    if (value <= 200) return '#ff0000';
-    if (value <= 300) return '#8f3f97';
-    return '#7e0023';
   }
 
   Map<String, dynamic> _typhoonFeatureCollection(Map<String, dynamic> payload) {

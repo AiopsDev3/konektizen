@@ -11,6 +11,8 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    flavorDimensions += "edition"
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -30,6 +32,17 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    productFlavors {
+        create("standard") {
+            dimension = "edition"
+        }
+        create("laoag") {
+            dimension = "edition"
+            applicationIdSuffix = ".laoag"
+            versionNameSuffix = "-laoag"
+        }
     }
 
     buildTypes {

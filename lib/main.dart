@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:konektizen/core/config/app_edition.dart';
 import 'package:konektizen/core/config/server_connection_config.dart';
 import 'package:konektizen/core/router/router.dart';
 import 'package:konektizen/features/auth/user_provider.dart';
@@ -11,8 +12,11 @@ import 'package:konektizen/features/weather/weather_notification_listener.dart';
 import 'package:konektizen/features/profile/accessibility_provider.dart';
 import 'package:konektizen/theme/app_theme.dart';
 
-void main() async {
+Future<void> main() => bootstrap(AppEdition.standard);
+
+Future<void> bootstrap(AppEdition edition) async {
   WidgetsFlutterBinding.ensureInitialized();
+  AppFeatures.configure(edition);
   _configureLowDeviceDefaults();
   await ServerConnectionConfig.instance.load();
 
@@ -79,9 +83,11 @@ class _KonektizenAppState extends ConsumerState<KonektizenApp>
   Widget build(BuildContext context) {
     final accessibility = ref.watch(accessibilityProvider);
     return MaterialApp.router(
-      title: 'KONEKTIZEN',
+      title: AppFeatures.isLaoag ? 'KONEKTIZEN LAOAG' : 'KONEKTIZEN',
       debugShowCheckedModeBanner: false,
-      theme: accessibility.highContrast ? AppTheme.highContrastTheme : AppTheme.lightTheme,
+      theme: accessibility.highContrast
+          ? AppTheme.highContrastTheme
+          : AppTheme.lightTheme,
       routerConfig: router,
       builder: (context, child) {
         return WeatherNotificationListener(

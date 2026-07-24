@@ -14,7 +14,12 @@ class CallController {
   final bool deferConnection;
   final VoidCallback onStateChanged;
 
-  Timer? _reconnectTimer, _locationHeartbeatTimer, _remoteRecoveryTimer;
+  Timer? _reconnectTimer,
+      _locationHeartbeatTimer,
+      _remoteRecoveryTimer,
+      _remotePlaybackWatchdogTimer,
+      _mediaHealthTimer,
+      _remoteStreamScanTimer;
   StreamSubscription<Position>? _locationSubscription;
   bool _isLocationSharingActive = false,
       isConnecting = true,
@@ -23,13 +28,17 @@ class CallController {
       _isDisconnecting = false,
       _hasDisconnected = false,
       _engineReady = false,
-      _skipNativeCleanup = false;
+      _skipNativeCleanup = false,
+      _remoteFirstFrameRendered = false,
+      _remotePlaybackRestartInFlight = false,
+      _publishRecoveryInFlight = false;
   bool isMicEnabled = true, isCameraEnabled = true;
   bool _isZegoConnected = false;
   bool _isPublishing = false;
   int _reconnectAttempt = 0;
   String? error;
   String? _publishStreamId, _remoteStreamId;
+  String? _activeRoomName;
   late final String _zegoUserId;
   int? _localViewId, _remoteViewId;
   Widget? localView, remoteView;
@@ -62,6 +71,9 @@ class CallController {
     _reconnectTimer?.cancel();
     _locationHeartbeatTimer?.cancel();
     _remoteRecoveryTimer?.cancel();
+    _remotePlaybackWatchdogTimer?.cancel();
+    _mediaHealthTimer?.cancel();
+    _remoteStreamScanTimer?.cancel();
     _locationSubscription?.cancel();
     if (!_skipNativeCleanup) {
       unawaited(disconnect());
@@ -70,6 +82,31 @@ class CallController {
 
   bool get hasRemoteParticipant => remoteView != null;
   bool get hasLocalPreview => localView != null;
+  String get _streamRoomName => _activeRoomName ?? roomName;
+
+  bool _isOperatorStream(String streamId) {
+    final lower = streamId.toLowerCase();
+    return lower.contains('_c3_') ||
+        lower.contains('c3_') ||
+        lower.contains('operator') ||
+        lower.contains('command');
+  }
+
+  String _preferredRemoteStreamId(Iterable<String> streamIds) {
+    final candidates = streamIds
+        .where(
+          (streamId) => streamId.isNotEmpty && streamId != _publishStreamId,
+        )
+        .toList();
+    if (candidates.isEmpty) return '';
+    candidates.sort((a, b) {
+      final aOperator = _isOperatorStream(a);
+      final bOperator = _isOperatorStream(b);
+      if (aOperator != bOperator) return aOperator ? -1 : 1;
+      return a.compareTo(b);
+    });
+    return candidates.first;
+  }
 
   void _scheduleReconnect({String? reason}) {
     if (_isReconnectScheduled || isEnding) return;
@@ -106,6 +143,7 @@ class CallController {
         userId: _zegoUserId,
         userName: 'Citizen SOS',
       );
+      _activeRoomName = token.roomId.isNotEmpty ? token.roomId : roomName;
 
       await _resetZegoEngine();
       try {
@@ -138,6 +176,12 @@ class CallController {
         await _startPublishing();
       }
       SignalingService.instance.joinCallRoom(roomName, role: 'reporter');
+      if (_activeRoomName != null && _activeRoomName != roomName) {
+        SignalingService.instance.joinCallRoom(
+          _activeRoomName!,
+          role: 'reporter',
+        );
+      }
       _reconnectAttempt = 0;
       _isReconnectScheduled = false;
       isConnecting = false;
@@ -208,7 +252,7 @@ class CallController {
 
   void _bindZegoCallbacks() {
     ZegoExpressEngine.onRoomStreamUpdate = (roomId, updateType, streamList, _) {
-      if (roomId != roomName) return;
+      if (roomId != _streamRoomName) return;
       if (updateType == ZegoUpdateType.Add) {
         for (final stream in streamList) {
           if (stream.streamID == _publishStreamId) {
@@ -230,7 +274,7 @@ class CallController {
     };
     ZegoExpressEngine
         .onRoomStateChanged = (roomId, _, errorCode, extendedData) {
-      if (roomId != roomName || errorCode == 0 || isEnding) return;
+      if (roomId != _streamRoomName || errorCode == 0 || isEnding) return;
       error = 'AITELLIGENZ room warning ($errorCode)';
       debugPrint('[AITELLIGENZ Room] Room warning $errorCode $extendedData');
       onStateChanged();
@@ -242,6 +286,44 @@ class CallController {
       debugPrint(
         '[AITELLIGENZ Room] Publish warning $state $errorCode $extendedData',
       );
+      unawaited(_restartPublishing(reason: 'publish warning $errorCode'));
+      onStateChanged();
+    };
+    ZegoExpressEngine.onPlayerStateUpdate =
+        (streamId, state, errorCode, extendedData) {
+          if (streamId != _remoteStreamId || isEnding) return;
+          debugPrint(
+            '[AITELLIGENZ Room] Player state $state $errorCode $extendedData',
+          );
+          if (state == ZegoPlayerState.Playing && errorCode == 0) {
+            error = null;
+            _startRemotePlaybackWatchdog(streamId);
+            onStateChanged();
+            return;
+          }
+          if (errorCode != 0 || state == ZegoPlayerState.NoPlay) {
+            error = 'AITELLIGENZ room playback warning ($errorCode)';
+            unawaited(
+              _restartRemotePlayback(
+                streamId,
+                reason: 'player state $state $errorCode',
+              ),
+            );
+            onStateChanged();
+          }
+        };
+    ZegoExpressEngine.onPlayerRecvVideoFirstFrame = (streamId) {
+      if (streamId != _remoteStreamId || isEnding) return;
+      _remoteFirstFrameRendered = true;
+      error = null;
+      _remotePlaybackWatchdogTimer?.cancel();
+      onStateChanged();
+    };
+    ZegoExpressEngine.onPlayerRenderVideoFirstFrame = (streamId) {
+      if (streamId != _remoteStreamId || isEnding) return;
+      _remoteFirstFrameRendered = true;
+      error = null;
+      _remotePlaybackWatchdogTimer?.cancel();
       onStateChanged();
     };
   }
@@ -296,12 +378,19 @@ class CallController {
     onStateChanged();
   }
 
-  Future<void> _startRemotePlayback(String streamId) async {
+  Future<void> _startRemotePlayback(
+    String streamId, {
+    bool force = false,
+  }) async {
     if (!_engineReady || isEnding || streamId == _publishStreamId) return;
-    if (_remoteStreamId == streamId && remoteView != null) return;
+    if (!force && _remoteStreamId == streamId && remoteView != null) return;
     if (_remoteStreamId != null && _remoteStreamId != streamId) {
       await _stopRemotePlayback(clearCandidates: false);
     }
+    if (force && _remoteStreamId == streamId) {
+      await _stopRemotePlayback(clearCandidates: false);
+    }
+    _remoteFirstFrameRendered = false;
     _remoteStreamId = streamId;
     final widget = await ZegoExpressEngine.instance.createCanvasView((viewId) {
       if (isEnding || !_engineReady) return;
@@ -313,10 +402,12 @@ class CallController {
     });
     if (isEnding || !_engineReady) return;
     remoteView = widget;
+    _startRemotePlaybackWatchdog(streamId);
     onStateChanged();
   }
 
   Future<void> _stopRemotePlayback({bool clearCandidates = true}) async {
+    _remotePlaybackWatchdogTimer?.cancel();
     final streamId = _remoteStreamId;
     if (_engineReady && streamId != null) {
       try {
@@ -331,10 +422,51 @@ class CallController {
     _remoteStreamId = null;
     _remoteViewId = null;
     remoteView = null;
+    _remoteFirstFrameRendered = false;
     if (clearCandidates) {
       _remoteStreamCandidates.clear();
     }
     onStateChanged();
+  }
+
+  void _startRemotePlaybackWatchdog(String streamId) {
+    _remotePlaybackWatchdogTimer?.cancel();
+    _remotePlaybackWatchdogTimer = Timer(
+      const Duration(milliseconds: 2600),
+      () {
+        if (isEnding || !_engineReady || _remoteStreamId != streamId) return;
+        if (_remoteFirstFrameRendered) return;
+        unawaited(
+          _restartRemotePlayback(
+            streamId,
+            reason: 'remote video first frame timeout',
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _restartRemotePlayback(
+    String streamId, {
+    required String reason,
+  }) async {
+    if (_remotePlaybackRestartInFlight ||
+        !_engineReady ||
+        !_isZegoConnected ||
+        isEnding ||
+        streamId.isEmpty ||
+        streamId == _publishStreamId) {
+      return;
+    }
+    _remotePlaybackRestartInFlight = true;
+    try {
+      debugPrint('[CallController] Restarting remote playback: $reason');
+      await _startRemotePlayback(streamId, force: true);
+    } catch (e) {
+      debugPrint('[CallController] Remote playback restart failed: $e');
+    } finally {
+      _remotePlaybackRestartInFlight = false;
+    }
   }
 
   Future<void> _recoverRemotePlaybackAfterDrop(String droppedStreamId) async {
@@ -353,19 +485,95 @@ class CallController {
     _remoteRecoveryTimer?.cancel();
     _remoteRecoveryTimer = Timer(const Duration(milliseconds: 900), () {
       if (isEnding || !_engineReady || _remoteStreamId != null) return;
-      final nextStreamId = _remoteStreamCandidates.firstWhere(
-        (streamId) => streamId != _publishStreamId,
-        orElse: () => '',
-      );
+      final nextStreamId = _preferredRemoteStreamId(_remoteStreamCandidates);
       if (nextStreamId.isNotEmpty) {
         unawaited(_startRemotePlayback(nextStreamId));
       } else {
+        unawaited(_scanKnownRemoteStreams());
         onStateChanged();
       }
     });
   }
 
+  void _startMediaHealthChecks() {
+    _mediaHealthTimer?.cancel();
+    _remoteStreamScanTimer?.cancel();
+
+    _mediaHealthTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (isEnding || !_engineReady || !_isZegoConnected) return;
+      unawaited(_ensureLocalMediaHealthy());
+    });
+
+    _remoteStreamScanTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (isEnding || !_engineReady || !_isZegoConnected) return;
+      if (_remoteStreamId == null ||
+          remoteView == null ||
+          !_remoteFirstFrameRendered) {
+        unawaited(_scanKnownRemoteStreams());
+      }
+    });
+  }
+
+  Future<void> _scanKnownRemoteStreams() async {
+    if (!_engineReady || !_isZegoConnected || isEnding) return;
+    try {
+      final result = await ZegoExpressEngine.instance.getRoomStreamList(
+        _streamRoomName,
+        ZegoRoomStreamListType.Play,
+      );
+      for (final stream in result.playStreamList) {
+        final streamId = stream.streamID;
+        if (streamId.isEmpty || streamId == _publishStreamId) continue;
+        _remoteStreamCandidates.add(streamId);
+      }
+      final streamId = _preferredRemoteStreamId(_remoteStreamCandidates);
+      if (streamId.isEmpty) return;
+      if (_remoteStreamId != streamId || remoteView == null) {
+        await _startRemotePlayback(streamId);
+      } else if (!_remoteFirstFrameRendered) {
+        await _restartRemotePlayback(
+          streamId,
+          reason: 'known stream scan found blank playback',
+        );
+      }
+    } catch (e) {
+      debugPrint('[CallController] Remote stream scan failed: $e');
+    }
+  }
+
+  Future<void> _ensureLocalMediaHealthy() async {
+    if (!_engineReady || !_isZegoConnected || isEnding) return;
+    if (_publishStreamId == null) return;
+
+    if (isCameraEnabled) {
+      try {
+        await ZegoExpressEngine.instance.enableCamera(true);
+      } catch (e) {
+        debugPrint('[CallController] Could not keep camera enabled: $e');
+      }
+      if (localView == null || _localViewId == null) {
+        await _startLocalPreview();
+      } else {
+        try {
+          await ZegoExpressEngine.instance.startPreview(
+            canvas: _videoCanvas(_localViewId!),
+          );
+        } catch (e) {
+          debugPrint(
+            '[CallController] Local preview health restart failed: $e',
+          );
+        }
+      }
+    }
+
+    if (!_isPublishing) {
+      await _restartPublishing(reason: 'publish health check');
+    }
+  }
+
   Future<void> pausePublishingForAiTriage() async {
+    _mediaHealthTimer?.cancel();
+    _mediaHealthTimer = null;
     if (!_engineReady || !_isZegoConnected || isEnding) {
       _isPublishing = false;
       return;
@@ -391,7 +599,7 @@ class CallController {
       await _connectToZego(publishAfterConnect: true);
       return;
     }
-    await _startPublishing();
+    await _restartPublishing(reason: 'AI triage finished');
   }
 
   Future<void> _startPublishing() async {
@@ -402,8 +610,48 @@ class CallController {
         isEnding) {
       return;
     }
+    if (isCameraEnabled) {
+      try {
+        await ZegoExpressEngine.instance.enableCamera(true);
+        await _startLocalPreview();
+      } catch (e) {
+        debugPrint(
+          '[CallController] Could not prepare camera before publish: $e',
+        );
+      }
+    }
     await ZegoExpressEngine.instance.startPublishingStream(_publishStreamId!);
     _isPublishing = true;
+    _startMediaHealthChecks();
+  }
+
+  Future<void> _restartPublishing({String reason = 'media recovery'}) async {
+    if (_publishRecoveryInFlight || isEnding) return;
+    if (!_engineReady || !_isZegoConnected || _publishStreamId == null) return;
+    _publishRecoveryInFlight = true;
+    try {
+      debugPrint('[CallController] Restarting publish stream: $reason');
+      try {
+        await ZegoExpressEngine.instance.stopPublishingStream();
+      } catch (_) {}
+      _isPublishing = false;
+      await ZegoExpressEngine.instance.muteMicrophone(!isMicEnabled);
+      await ZegoExpressEngine.instance.setAudioRouteToSpeaker(true);
+      if (isCameraEnabled) {
+        await ZegoExpressEngine.instance.enableCamera(true);
+        await _startLocalPreview();
+      }
+      await ZegoExpressEngine.instance.startPublishingStream(_publishStreamId!);
+      _isPublishing = true;
+      error = null;
+      _startMediaHealthChecks();
+    } catch (e) {
+      error = _friendlyConnectionError(e);
+      debugPrint('[CallController] Publish restart failed: $e');
+    } finally {
+      _publishRecoveryInFlight = false;
+      onStateChanged();
+    }
   }
 
   ZegoCanvas _videoCanvas(int viewId) {
@@ -465,6 +713,9 @@ class CallController {
     if (_isZegoConnected && _engineReady) {
       await ZegoExpressEngine.instance.enableCamera(true);
       await _startLocalPreview();
+      if (!_isPublishing) {
+        await _restartPublishing(reason: 'camera enabled');
+      }
     }
     if (changed) onStateChanged();
   }
@@ -482,19 +733,23 @@ class CallController {
     await _stopLocalPreview();
     await ZegoExpressEngine.instance.enableCamera(true);
     await _startLocalPreview();
+    await _restartPublishing(reason: 'local preview recovered');
   }
 
   Future<void> recoverVideoSurfaces() async {
     if (isEnding) return;
-    await recoverLocalPreview();
-    if (isEnding || !_engineReady || remoteView != null) return;
-    final streamId = _remoteStreamCandidates.firstWhere(
-      (candidate) => candidate != _publishStreamId,
-      orElse: () => '',
-    );
+    if (isEnding || !_engineReady || !_isZegoConnected) return;
+    await _scanKnownRemoteStreams();
+    if (isEnding || remoteView != null) return;
+    final streamId = _preferredRemoteStreamId(_remoteStreamCandidates);
     if (streamId.isNotEmpty) {
       await _startRemotePlayback(streamId);
     } else {
+      _remoteRecoveryTimer?.cancel();
+      _remoteRecoveryTimer = Timer(const Duration(milliseconds: 700), () {
+        if (isEnding || !_engineReady || !_isZegoConnected) return;
+        unawaited(_scanKnownRemoteStreams());
+      });
       onStateChanged();
     }
   }
@@ -505,6 +760,9 @@ class CallController {
     _hasDisconnected = true;
     _reconnectTimer?.cancel();
     _remoteRecoveryTimer?.cancel();
+    _remotePlaybackWatchdogTimer?.cancel();
+    _mediaHealthTimer?.cancel();
+    _remoteStreamScanTimer?.cancel();
     _isReconnectScheduled = false;
     try {
       if (_engineReady) {
@@ -520,7 +778,7 @@ class CallController {
         } catch (_) {}
         try {
           if (_isZegoConnected) {
-            await ZegoExpressEngine.instance.logoutRoom(roomName);
+            await ZegoExpressEngine.instance.logoutRoom(_streamRoomName);
           }
         } catch (_) {}
       }
@@ -541,6 +799,9 @@ class CallController {
     _reconnectTimer?.cancel();
     _locationHeartbeatTimer?.cancel();
     _remoteRecoveryTimer?.cancel();
+    _remotePlaybackWatchdogTimer?.cancel();
+    _mediaHealthTimer?.cancel();
+    _remoteStreamScanTimer?.cancel();
     _locationSubscription?.cancel();
     _isReconnectScheduled = false;
     _isPublishing = false;
@@ -551,10 +812,15 @@ class CallController {
     _localViewId = null;
     _remoteViewId = null;
     _remoteStreamId = null;
+    _remoteFirstFrameRendered = false;
+    _activeRoomName = null;
     _remoteStreamCandidates.clear();
     ZegoExpressEngine.onRoomStreamUpdate = null;
     ZegoExpressEngine.onRoomStateChanged = null;
     ZegoExpressEngine.onPublisherStateUpdate = null;
+    ZegoExpressEngine.onPlayerStateUpdate = null;
+    ZegoExpressEngine.onPlayerRecvVideoFirstFrame = null;
+    ZegoExpressEngine.onPlayerRenderVideoFirstFrame = null;
   }
 
   Future<void> _destroyCanvasViews() async {
@@ -563,10 +829,16 @@ class CallController {
         await ZegoExpressEngine.instance.destroyCanvasView(_localViewId!);
       }
     } catch (_) {}
+    try {
+      if (_engineReady && _remoteViewId != null) {
+        await ZegoExpressEngine.instance.destroyCanvasView(_remoteViewId!);
+      }
+    } catch (_) {}
     _localViewId = null;
     _remoteViewId = null;
     localView = null;
     remoteView = null;
+    _remoteFirstFrameRendered = false;
     _remoteStreamCandidates.clear();
   }
 
@@ -575,6 +847,9 @@ class CallController {
       ZegoExpressEngine.onRoomStreamUpdate = null;
       ZegoExpressEngine.onRoomStateChanged = null;
       ZegoExpressEngine.onPublisherStateUpdate = null;
+      ZegoExpressEngine.onPlayerStateUpdate = null;
+      ZegoExpressEngine.onPlayerRecvVideoFirstFrame = null;
+      ZegoExpressEngine.onPlayerRenderVideoFirstFrame = null;
     }
     try {
       if (_engineReady) {
@@ -583,6 +858,7 @@ class CallController {
     } catch (_) {}
     _engineReady = false;
     _isZegoConnected = false;
+    _activeRoomName = null;
   }
 
   String _safeZegoId(String value) {
