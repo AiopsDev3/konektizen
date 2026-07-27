@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:konektizen/core/api/api_service.dart';
@@ -126,51 +125,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _handleFacebookLogin() async {
-    setState(() => _isLoading = true);
-    try {
-      final LoginResult result = await FacebookAuth.instance.login(
-        permissions: ['public_profile', 'email'],
-      );
-
-      if (result.status == LoginStatus.success) {
-        final AccessToken accessToken = result.accessToken!;
-        final apiResult = await apiService.facebookLogin(
-          accessToken.tokenString,
-        );
-
-        if (!mounted) return;
-        setState(() => _isLoading = false);
-
-        if (apiResult != null && apiResult['error'] == null) {
-          if (mounted) _checkVerificationAndProceed(apiResult);
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(apiResult?['error'] ?? 'Facebook login failed'),
-              ),
-            );
-          }
-        }
-      } else {
-        setState(() => _isLoading = false);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Facebook login cancelled')),
-          );
-        }
-      }
-    } catch (e) {
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Facebook login error: $e')));
-      }
-    }
-  }
-
   void _checkVerificationAndProceed(Map<String, dynamic> data) {
     if (!mounted) return;
     context.go('/home');
@@ -275,30 +229,6 @@ class _LoginScreenState extends State<LoginScreen> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Facebook login button
-              SizedBox(
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _handleFacebookLogin,
-                  icon: const Icon(Icons.facebook, color: Colors.white),
-                  label: const Text(
-                    'Magpatuloy gamit ang Facebook',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1877F2),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
                 ),
               ),
               const SizedBox(height: 16),
