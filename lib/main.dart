@@ -7,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:konektizen/core/config/app_edition.dart';
 import 'package:konektizen/core/config/server_connection_config.dart';
 import 'package:konektizen/core/router/router.dart';
+import 'package:konektizen/core/update/mobile_update_gate.dart';
 import 'package:konektizen/features/auth/user_provider.dart';
 import 'package:konektizen/features/weather/weather_notification_listener.dart';
 import 'package:konektizen/features/profile/accessibility_provider.dart';
@@ -90,9 +91,11 @@ class _KonektizenAppState extends ConsumerState<KonektizenApp>
           : AppTheme.lightTheme,
       routerConfig: router,
       builder: (context, child) {
-        return WeatherNotificationListener(
+        final app = WeatherNotificationListener(
           child: child ?? const SizedBox.shrink(),
         );
+        if (AppFeatures.isLaoag) return app;
+        return MobileUpdateGate(navigatorKey: rootNavigatorKey, child: app);
       },
     );
   }
