@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:konektizen/core/api/api_service.dart';
 import 'package:konektizen/core/utils/app_dialogs.dart';
@@ -66,53 +65,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  Future<void> _handleFacebookRegister() async {
-    setState(() => _isLoading = true);
-    try {
-      final LoginResult result = await FacebookAuth.instance.login(
-        permissions: ['public_profile', 'email'],
-      );
-
-      if (result.status == LoginStatus.success) {
-        final AccessToken accessToken = result.accessToken!;
-        // Use the same endpoint as login, as it handles creation
-        final apiResult = await apiService.facebookLogin(
-          accessToken.tokenString,
-        );
-
-        if (!mounted) return;
-        setState(() => _isLoading = false);
-
-        if (apiResult != null && apiResult['error'] == null) {
-          _checkVerificationAndProceed(apiResult);
-        } else {
-          if (mounted) {
-            AppDialogs.showError(
-              context,
-              title: 'Registration Failed',
-              message:
-                  apiResult?['error'] ?? 'Failed to authenticate with backend.',
-            );
-          }
-        }
-      } else {
-        if (!mounted) return;
-        setState(() => _isLoading = false);
-        if (result.status == LoginStatus.failed) {
-          AppDialogs.showError(
-            context,
-            title: 'Facebook Error',
-            message: result.message ?? 'Facebook login failed.',
-          );
-        }
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-      AppDialogs.showError(context, title: 'Error', message: e.toString());
-    }
-  }
-
   void _checkVerificationAndProceed(Map<String, dynamic> data) {
     if (!mounted) return;
     context.go('/home');
@@ -152,32 +104,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     : const Text('Gumawa ng Account'),
               ),
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _isLoading ? null : _handleFacebookRegister,
-                icon: const Icon(Icons.facebook, color: Colors.white),
-                label: const Text(
-                  'Magpatuloy gamit ang Facebook',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1877F2), // Facebook Blue
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8), // Rounded corners
-                  ),
-                ),
-              ),
-            ),
-
             const SizedBox(height: 12),
 
             // Phone Registration Button
